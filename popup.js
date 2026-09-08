@@ -807,6 +807,8 @@ function renderHeatmap() {
     }
 
     cell.addEventListener('click', () => {
+      const container = document.querySelector('.heatmap-container');
+      if (container && container.classList.contains('is-dragging')) return;
       document.querySelectorAll('.heatmap-cell').forEach(el => el.classList.remove('selected'));
       cell.classList.add('selected');
       updateSelectedDateDetails(dateStr, timeMs);
@@ -815,8 +817,58 @@ function renderHeatmap() {
     heatmapGrid.appendChild(cell);
   }
 
+  // Complete current week with invisible spacer cells to ensure even columns
+  const remainingDaysInWeek = 6 - todayDate.getDay();
+  for (let i = 0; i < remainingDaysInWeek; i++) {
+    const emptyDiv = document.createElement('div');
+    emptyDiv.style.visibility = 'hidden';
+    emptyDiv.setAttribute('aria-hidden', 'true');
+    heatmapGrid.appendChild(emptyDiv);
+  }
+
   const container = document.querySelector('.heatmap-container');
-  if (container) container.scrollLeft = container.scrollWidth;
+  if (container) {
+    requestAnimationFrame(() => {
+      container.scrollLeft = container.scrollWidth;
+    });
+    initHeatmapInteractions(container);
+  }
+}
+
+function initHeatmapInteractions(container) {
+  if (!container || container.dataset.interactionsInit) return;
+  container.dataset.interactionsInit = 'true';
+
+  // Click & drag horizontal panning
+  let isDown = false;
+  let startX = 0;
+  let scrollStart = 0;
+
+  container.addEventListener('mousedown', (e) => {
+    isDown = true;
+    startX = e.pageX - container.offsetLeft;
+    scrollStart = container.scrollLeft;
+  });
+
+  window.addEventListener('mouseup', () => {
+    if (isDown) {
+      isDown = false;
+      setTimeout(() => {
+        container.classList.remove('is-dragging');
+      }, 50);
+    }
+  });
+
+  container.addEventListener('mousemove', (e) => {
+    if (!isDown) return;
+    const x = e.pageX - container.offsetLeft;
+    const walk = x - startX;
+    if (Math.abs(walk) > 3) {
+      container.classList.add('is-dragging');
+      e.preventDefault();
+      container.scrollLeft = scrollStart - walk;
+    }
+  });
 }
 
 function updateSelectedDateDetails(dateStr, timeMs) {

@@ -677,10 +677,11 @@ body.isRunning .status-tag {
   display: flex;
   flex-direction: column;
   gap: 11px;
-  padding-bottom: 8px;
+  padding-bottom: 24px;
 }
 
 .bento-card {
+  flex-shrink: 0;
   background: var(--bg-card);
   border: 1px solid var(--border-card);
   border-radius: var(--radius-lg);
@@ -925,11 +926,46 @@ body.isRunning .status-tag {
 }
 
 /* Bento Card 4: Annual Heatmap Matrix */
+.bento-heatmap {
+  position: relative;
+}
+
 .heatmap-container {
   width: 100%;
   overflow-x: auto;
   overflow-y: hidden;
-  padding: 4px 0 6px 0;
+  padding: 6px 0 6px 0;
+  cursor: grab;
+  user-select: none;
+  scroll-behavior: smooth;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.1) transparent;
+}
+
+.heatmap-container.is-dragging {
+  cursor: grabbing;
+  scroll-behavior: auto;
+}
+
+.heatmap-container::-webkit-scrollbar {
+  height: 3.5px;
+}
+
+.heatmap-container::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.025);
+  border-radius: 4px;
+  margin: 0 8px;
+}
+
+.heatmap-container::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+  transition: background var(--duration-fast);
+}
+
+.heatmap-container::-webkit-scrollbar-thumb:hover,
+.heatmap-container:hover::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.22);
 }
 
 .heatmap-matrix {
@@ -939,6 +975,8 @@ body.isRunning .status-tag {
   grid-auto-columns: 9.5px;
   gap: 3px;
   width: max-content;
+  padding: 4px 8px 6px 8px;
+  box-sizing: content-box;
 }
 
 .heatmap-cell {
@@ -947,8 +985,10 @@ body.isRunning .status-tag {
   border-radius: 2px;
   background: rgba(255, 255, 255, 0.045);
   cursor: pointer;
+  box-sizing: border-box;
   transition: transform var(--duration-fast) var(--ease-bounce),
-              background var(--duration-fast);
+              background var(--duration-fast),
+              outline-color var(--duration-fast);
 }
 
 .heatmap-cell:hover {
@@ -974,6 +1014,7 @@ body.isRunning .status-tag {
 .heatmap-cell.selected {
   outline: 1.5px solid #ffffff;
   outline-offset: 1px;
+  z-index: 4;
 }
 
 .heatmap-footer {
