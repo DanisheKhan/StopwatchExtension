@@ -67,7 +67,7 @@ function calculateStreak() {
   let d = new Date();
   
   // Check if today meets goal
-  const todayTotal = (dailyLogs[today] || 0) + (isRunning ? (Date.now() - startTime + elapsedTime) : elapsedTime);
+  const todayTotal = (dailyLogs[today] || 0) + (isRunning ? (Date.now() - startTime) : 0);
   if (todayTotal >= dailyGoalMs) {
     streak++;
   }
@@ -181,7 +181,7 @@ let storageLoadedPromise = new Promise((resolve) => {
           
           elapsedTime += activeDuration;
           recordWorkedTime(activeDuration, lastRecordedDate);
-          checkLongestSession(elapsedTime);
+          checkLongestSession(activeDuration);
           
           if (activeDuration > 0) {
             recordTimeOfDayBuckets(startTime, startTime + activeDuration);
@@ -226,7 +226,7 @@ function checkMidnightReset() {
       
       if (durationForOldDay > 0) {
         recordWorkedTime(durationForOldDay, lastRecordedDate);
-        checkLongestSession(durationForOldDay + elapsedTime);
+        checkLongestSession(durationForOldDay);
         recordTimeOfDayBuckets(startTime, endOfPreviousDay.getTime());
         recordSessionInterval(startTime, endOfPreviousDay.getTime(), activeTag, timerMode);
       }
@@ -287,7 +287,7 @@ function handleSleepStop(lastHb, sTime, elTime) {
   const activeDuration = Math.max(0, lastHb - sTime);
   elapsedTime = elTime + activeDuration;
   recordWorkedTime(activeDuration);
-  checkLongestSession(elapsedTime);
+  checkLongestSession(activeDuration);
   if (activeDuration > 0) {
     recordTimeOfDayBuckets(sTime, sTime + activeDuration);
     recordSessionInterval(sTime, sTime + activeDuration, activeTag, timerMode);
@@ -529,7 +529,7 @@ function doStopTimer(isManual) {
     
     elapsedTime += sessionDuration;
     recordWorkedTime(sessionDuration);
-    checkLongestSession(elapsedTime);
+    checkLongestSession(sessionDuration);
     recordTimeOfDayBuckets(startTime, now);
     recordSessionInterval(startTime, now, activeTag, timerMode);
 
@@ -567,20 +567,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       doStopTimer(true);
       sendResponse({ success: true });
     } else if (message.type === 'GET_STATUS') {
-      const now = Date.now();
-      const currentElapsed = isRunning ? (now - startTime + elapsedTime) : elapsedTime;
-      let currentPomodoroRemaining = pomodoroRemainingMs;
-      if (timerMode === 'pomodoro' && isRunning) {
-        currentPomodoroRemaining = Math.max(0, pomodoroRemainingMs - (now - startTime));
-      }
-
       const todayStr = getTodayDate();
       sendResponse({ 
         isRunning, 
-        elapsedTime: currentElapsed, 
+        elapsedTime, 
         timerMode,
         pomodoroDurationMs,
-        pomodoroRemainingMs: currentPomodoroRemaining,
+        pomodoroRemainingMs,
         activeTag,
         dailySessions: dailySessions[todayStr] || [],
         allDailySessions: dailySessions,
@@ -715,7 +708,7 @@ function triggerAutoPause(newState) {
   
   elapsedTime += activeDuration;
   recordWorkedTime(activeDuration);
-  checkLongestSession(elapsedTime);
+  checkLongestSession(activeDuration);
   recordTimeOfDayBuckets(startTime, startTime + activeDuration);
   recordSessionInterval(startTime, startTime + activeDuration, activeTag, timerMode);
   recordPause('idle');
@@ -815,7 +808,7 @@ function syncToGoogleSheets(customUrl = null) {
   const breaksToSync = { ...dailyBreaks };
   const pausesToSync = { ...dailyPauses };
 
-  const todayWork = isRunning ? (Date.now() - startTime + elapsedTime) : elapsedTime;
+  const todayWork = (dailyLogs[today] || 0) + (isRunning ? (Date.now() - startTime) : 0);
   if (todayWork > 0) {
     logsToSync[today] = todayWork;
   }
