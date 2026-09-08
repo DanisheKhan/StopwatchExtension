@@ -1,58 +1,112 @@
+// ==========================================================================
+// FOCUS FLOW — PROFESSIONAL POPUP ENGINE (ZERO-LATENCY IPC)
+// ==========================================================================
+
 function getTodayDate() {
   const d = new Date();
   return `${d.getFullYear()}-${(d.getMonth() + 1).toString().padStart(2, '0')}-${d.getDate().toString().padStart(2, '0')}`;
 }
 
+// Local State
 let isRunning = false;
-let displayTime = 0;
-let sessionStartTime = 0;
+let displayTime = 0; // Cumulative ms recorded prior to current session
+let sessionStartTime = 0; // Timestamp when active session started
 let animationFrameId = null;
+
 let currentDailyLogs = {};
 let currentDailyPauses = {};
+let currentDailyBreaks = {};
 let currentDailyGoalMs = 8 * 60 * 60 * 1000;
 let currentTimeOfDayBuckets = { morning: 0, afternoon: 0, evening: 0, night: 0 };
 let currentLongestSessionMs = 0;
 let currentStartTimesSum = 0;
 let currentStartTimesCount = 0;
-let currentDailyBreaks = {};
 let currentLastPauseTimestamp = 0;
+let currentStreakCount = 0;
 
+let timerMode = 'stopwatch'; // 'stopwatch' | 'pomodoro'
+let pomodoroDurationMs = 25 * 60 * 1000;
+let pomodoroRemainingMs = 25 * 60 * 1000;
+let activeTag = 'Deep Work';
+let dailySessions = [];
+let allDailySessions = {};
+let dailyTags = {};
+let idleThreshold = 900;
+let soundEnabled = true;
+
+// DOM Elements
 const displayEl = document.getElementById('display');
-const msEl = document.querySelector('.milliseconds');
+const msEl = document.getElementById('msDisplay');
 const startStopBtn = document.getElementById('startStopBtn');
+const startBtnLabel = document.getElementById('startBtnLabel');
+const resetBtn = document.getElementById('resetBtn');
 const statusText = document.getElementById('statusText');
 const statusDot = document.getElementById('statusDot');
-const historyToggleBtn = document.getElementById('historyToggleBtn');
-const historyPanel = document.getElementById('historyPanel');
-const heatmapGrid = document.getElementById('heatmapGrid');
-const detailsDateEl = document.getElementById('detailsDate');
-const detailsTimeEl = document.getElementById('detailsTime');
+const currentTimeEl = document.getElementById('currentTime');
+const streakCountEl = document.getElementById('streakCount');
+const dialProgress = document.getElementById('dialProgress');
+const goalPercentText = document.getElementById('goalPercentText');
+
+// Mode Switcher Elements
+const modeStopwatchBtn = document.getElementById('modeStopwatchBtn');
+const modePomodoroBtn = document.getElementById('modePomodoroBtn');
+const pomodoroPresetBar = document.getElementById('pomodoroPresetBar');
+const pomoChips = document.querySelectorAll('.pomo-chip');
+
+// Tag Selector Elements
+const tagSelectorBtn = document.getElementById('tagSelectorBtn');
+const activeTagLabel = document.getElementById('activeTagLabel');
+const tagDropdown = document.getElementById('tagDropdown');
+const customTagInput = document.getElementById('customTagInput');
+const tagOptItems = document.querySelectorAll('.tag-opt-item');
+
+// Nav Tabs
+const navBtns = document.querySelectorAll('.nav-btn');
+const tabPanels = document.querySelectorAll('.tab-panel');
+
+// Analytics Elements
+const kpiToday = document.getElementById('kpiToday');
+const statWeekly = document.getElementById('statWeekly');
+const statMonthly = document.getElementById('statMonthly');
+const statAverage = document.getElementById('statAverage');
 const dayGoalVal = document.getElementById('dayGoalVal');
 const dayGoalBar = document.getElementById('dayGoalBar');
-const dayManualVal = document.getElementById('dayManualVal');
-const dayIdleVal = document.getElementById('dayIdleVal');
-const progressValueEl = document.getElementById('progressValue');
-
-const dayRatioBox = document.getElementById('dayRatioBox');
 const dayRatioVal = document.getElementById('dayRatioVal');
 const dayRatioWorkBar = document.getElementById('dayRatioWorkBar');
 const dayRatioBreakBar = document.getElementById('dayRatioBreakBar');
 const dayWorkHrs = document.getElementById('dayWorkHrs');
 const dayBreakHrs = document.getElementById('dayBreakHrs');
-
-const bestDayBadge = document.getElementById('bestDayBadge');
-const worstDayBadge = document.getElementById('worstDayBadge');
-const avgStartTimeEl = document.getElementById('avgStartTime');
-const longestSessionTimeEl = document.getElementById('longestSessionTime');
 const barMorning = document.getElementById('barMorning');
 const barAfternoon = document.getElementById('barAfternoon');
 const barEvening = document.getElementById('barEvening');
 const barNight = document.getElementById('barNight');
-const dailyGoalInput = document.getElementById('dailyGoalInput');
-const currentTimeEl = document.getElementById('currentTime');
+const bestDayBadge = document.getElementById('bestDayBadge');
+const avgStartTimeEl = document.getElementById('avgStartTime');
+const longestSessionTimeEl = document.getElementById('longestSessionTime');
+const dayPausesCombined = document.getElementById('dayPausesCombined');
+const heatmapGrid = document.getElementById('heatmapGrid');
+const detailsDateEl = document.getElementById('detailsDate');
+const detailsTimeEl = document.getElementById('detailsTime');
 
-// Google Sheets Sync Elements
+// Log Elements
+const sessionList = document.getElementById('sessionList');
+const sessionCount = document.getElementById('sessionCount');
+const copySummaryBtn = document.getElementById('copySummaryBtn');
+const exportCsvBtn = document.getElementById('exportCsvBtn');
+const clearTodayBtn = document.getElementById('clearTodayBtn');
+
+// Settings Elements
+const goalMinusBtn = document.getElementById('goalMinusBtn');
+const goalPlusBtn = document.getElementById('goalPlusBtn');
+const goalDisplayVal = document.getElementById('goalDisplayVal');
+const dailyGoalInput = document.getElementById('dailyGoalInput');
+const presetPills = document.querySelectorAll('.preset-pill');
+const idleSelect = document.getElementById('idleSelect');
+const soundToggle = document.getElementById('soundToggle');
+
+// Google Sheets Elements
 const syncStatusEl = document.getElementById('syncStatus');
+const syncStatusDesc = document.getElementById('syncStatusDesc');
 const sheetsUrlInput = document.getElementById('sheetsUrlInput');
 const saveConnectBtn = document.getElementById('saveConnectBtn');
 const syncNowBtn = document.getElementById('syncNowBtn');
@@ -60,327 +114,546 @@ const autoSyncCheckbox = document.getElementById('autoSyncCheckbox');
 const guideToggleBtn = document.getElementById('guideToggleBtn');
 const guideContent = document.getElementById('guideContent');
 const copyScriptBtn = document.getElementById('copyScriptBtn');
-const configToggleBtn = document.getElementById('configToggleBtn');
-const sheetsConfigPanel = document.getElementById('sheetsConfigPanel');
 
-dailyGoalInput.addEventListener('change', (e) => {
-  const val = parseFloat(e.target.value);
-  if (val > 0) {
-    chrome.runtime.sendMessage({ type: 'UPDATE_GOAL', dailyGoalMs: val * 3600000 }, updateUI);
+// Toast Element
+const toastNotification = document.getElementById('toastNotification');
+const toastMessage = document.getElementById('toastMessage');
+
+// ==========================================================================
+// TOAST HELPER
+// ==========================================================================
+let toastTimer = null;
+function showToast(msg) {
+  if (!toastNotification || !toastMessage) return;
+  toastMessage.textContent = msg;
+  toastNotification.classList.remove('hidden');
+  if (toastTimer) clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => {
+    toastNotification.classList.add('hidden');
+  }, 2000);
+}
+
+// ==========================================================================
+// AUDIO CHIMES (Synthesized via Web Audio API)
+// ==========================================================================
+let audioCtx = null;
+function getAudioContext() {
+  if (!audioCtx) {
+    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+    if (AudioCtx) audioCtx = new AudioCtx();
   }
-});
+  if (audioCtx && audioCtx.state === 'suspended') {
+    audioCtx.resume();
+  }
+  return audioCtx;
+}
 
+function playChime(type) {
+  if (!soundEnabled) return;
+  try {
+    const ctx = getAudioContext();
+    if (!ctx) return;
+    const now = ctx.currentTime;
+
+    if (type === 'start') {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(440, now);
+      osc.frequency.exponentialRampToValueAtTime(880, now + 0.08);
+      gain.gain.setValueAtTime(0.1, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.1);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(now);
+      osc.stop(now + 0.1);
+    } else if (type === 'stop') {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(700, now);
+      osc.frequency.exponentialRampToValueAtTime(350, now + 0.08);
+      gain.gain.setValueAtTime(0.08, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.1);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(now);
+      osc.stop(now + 0.1);
+    } else if (type === 'finish') {
+      [523.25, 659.25, 783.99].forEach((freq, idx) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(freq, now + idx * 0.12);
+        gain.gain.setValueAtTime(0.15, now + idx * 0.12);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + idx * 0.12 + 0.5);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start(now + idx * 0.12);
+        osc.stop(now + idx * 0.12 + 0.5);
+      });
+    }
+  } catch (e) {}
+}
+
+// ==========================================================================
+// TIME FORMATTERS
+// ==========================================================================
 function formatTime(ms) {
-  const seconds = Math.floor((ms / 1000) % 60);
-  const minutes = Math.floor((ms / (1000 * 60)) % 60);
-  const hours = Math.floor(ms / (1000 * 60 * 60));
+  if (ms < 0) ms = 0;
+  const totalSeconds = Math.floor(ms / 1000);
+  const seconds = totalSeconds % 60;
+  const minutes = Math.floor(totalSeconds / 60) % 60;
+  const hours = Math.floor(totalSeconds / 3600);
 
   const h = hours.toString().padStart(2, '0');
   const m = minutes.toString().padStart(2, '0');
   const s = seconds.toString().padStart(2, '0');
-
   return `${h}:${m}:${s}`;
 }
 
 function formatMs(ms) {
-  const milliseconds = Math.floor((ms % 1000) / 10);
-  return `.${milliseconds.toString().padStart(2, '0')}`;
+  if (ms < 0) ms = 0;
+  const centis = Math.floor((ms % 1000) / 10);
+  return `.${centis.toString().padStart(2, '0')}`;
 }
 
 function formatShortTime(ms) {
-  const hours = Math.floor(ms / (1000 * 60 * 60));
-  const minutes = Math.floor((ms / (1000 * 60)) % 60);
+  if (!ms || ms <= 0) return '0m';
+  const hours = Math.floor(ms / 3600000);
+  const minutes = Math.floor((ms % 3600000) / 60000);
   if (hours > 0) return `${hours}h ${minutes}m`;
   return `${minutes}m`;
 }
 
-let selectedDateStr = getTodayDate(); // Default to today
+function formatClockTime(ts) {
+  const d = new Date(ts);
+  let h = d.getHours();
+  const m = d.getMinutes().toString().padStart(2, '0');
+  const ampm = h >= 12 ? 'PM' : 'AM';
+  h = h % 12 || 12;
+  return `${h}:${m} ${ampm}`;
+}
 
-function updateSelectedDateDetails() {
-  if (!selectedDateStr) return;
-  
-  // Parse dateStr safely
-  const parts = selectedDateStr.split('-');
-  const d = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
-  const todayStr = getTodayDate();
-  
-  let liveTime = currentDailyLogs[selectedDateStr] || 0;
-  let breakMs = currentDailyBreaks[selectedDateStr] || 0;
-  
-  if (selectedDateStr === todayStr) {
-    if (isRunning && sessionStartTime) {
-      liveTime += (Date.now() - sessionStartTime);
-    }
-    if (!isRunning && currentLastPauseTimestamp > 0 && liveTime < currentDailyGoalMs) {
-      let liveBreak = Date.now() - currentLastPauseTimestamp;
-      const MAX_BREAK_MS = 2 * 60 * 60 * 1000;
-      if (liveBreak > MAX_BREAK_MS) {
-        liveBreak = MAX_BREAK_MS;
-      }
-      breakMs += liveBreak;
-    }
+// ==========================================================================
+// LOCAL TIME CALCULATORS (ZERO IPC OVERHEAD)
+// ==========================================================================
+function getLiveElapsed() {
+  if (isRunning && sessionStartTime > 0) {
+    return displayTime + (Date.now() - sessionStartTime);
   }
-  
-  detailsDateEl.textContent = d.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'short', day: 'numeric' });
-  detailsTimeEl.textContent = formatTime(liveTime);
-  
-  const pauses = currentDailyPauses[selectedDateStr] || { manual: 0, idle: 0 };
-  
-  if (liveTime === 0 && breakMs === 0) {
-    dayGoalVal.textContent = '-';
-    dayGoalBar.style.width = '0%';
-    dayManualVal.textContent = '-';
-    dayIdleVal.textContent = '-';
-    
-    dayRatioVal.textContent = '-';
-    dayRatioWorkBar.style.width = '0%';
-    dayRatioBreakBar.style.width = '0%';
-    dayWorkHrs.textContent = '-';
-    dayBreakHrs.textContent = '-';
-  } else {
-    // Goal Progress
-    if (liveTime > 0) {
-      const goalRatio = Math.min(Math.round((liveTime / currentDailyGoalMs) * 100), 100);
-      const goalHours = (currentDailyGoalMs / 3600000).toFixed(1);
-      const workedHours = (liveTime / 3600000).toFixed(1);
-      
-      dayGoalVal.textContent = `${workedHours}h / ${goalHours}h (${goalRatio}%)`;
-      dayGoalBar.style.width = `${goalRatio}%`;
-    } else {
-      dayGoalVal.textContent = '-';
-      dayGoalBar.style.width = '0%';
+  return displayTime;
+}
+
+function getLivePomodoroRemaining() {
+  if (isRunning && sessionStartTime > 0) {
+    const elapsedSinceStart = Date.now() - sessionStartTime;
+    return Math.max(0, pomodoroRemainingMs - elapsedSinceStart);
+  }
+  return pomodoroRemainingMs;
+}
+
+// ==========================================================================
+// 60FPS LOCAL ANIMATION LOOP (NO SENDMESSAGE INSIDE!)
+// ==========================================================================
+const CIRCLE_CIRCUMFERENCE = 641; // 2 * PI * 102
+
+function startAnimation() {
+  if (animationFrameId) cancelAnimationFrame(animationFrameId);
+
+  const step = () => {
+    if (!isRunning) {
+      animationFrameId = null;
+      return;
     }
-    
-    dayManualVal.textContent = pauses.manual.toString();
-    dayIdleVal.textContent = pauses.idle.toString();
-    
-    // Work vs Break Ratio
-    const total = liveTime + breakMs;
-    if (total > 0) {
-      const workPct = Math.round((liveTime / total) * 100);
-      const breakPct = 100 - workPct;
-      
-      dayRatioVal.textContent = `${workPct}% Work / ${breakPct}% Break`;
-      dayRatioWorkBar.style.width = `${workPct}%`;
-      dayRatioBreakBar.style.width = `${breakPct}%`;
-      dayWorkHrs.textContent = formatShortTime(liveTime);
-      dayBreakHrs.textContent = formatShortTime(breakMs);
+
+    if (timerMode === 'pomodoro') {
+      const remaining = getLivePomodoroRemaining();
+      displayEl.textContent = formatTime(remaining);
+      msEl.textContent = formatMs(remaining);
+
+      const completed = Math.max(0, pomodoroDurationMs - remaining);
+      const ratio = Math.min(1, completed / pomodoroDurationMs);
+      dialProgress.style.strokeDashoffset = CIRCLE_CIRCUMFERENCE - (ratio * CIRCLE_CIRCUMFERENCE);
+
+      if (remaining <= 0) {
+        cancelAnimationFrame(animationFrameId);
+        animationFrameId = null;
+        updateUI();
+        return;
+      }
     } else {
-      dayRatioVal.textContent = '-';
-      dayRatioWorkBar.style.width = '0%';
-      dayRatioBreakBar.style.width = '0%';
-      dayWorkHrs.textContent = '-';
-      dayBreakHrs.textContent = '-';
+      const elapsed = getLiveElapsed();
+      displayEl.textContent = formatTime(elapsed);
+      msEl.textContent = formatMs(elapsed);
+
+      const ratio = Math.min(elapsed / currentDailyGoalMs, 1);
+      dialProgress.style.strokeDashoffset = CIRCLE_CIRCUMFERENCE - (ratio * CIRCLE_CIRCUMFERENCE);
+
+      const pct = Math.round((elapsed / currentDailyGoalMs) * 100);
+      const hrs = (currentDailyGoalMs / 3600000).toFixed(1);
+      goalPercentText.textContent = `${pct}% of ${hrs}h goal`;
     }
+
+    animationFrameId = requestAnimationFrame(step);
+  };
+
+  animationFrameId = requestAnimationFrame(step);
+}
+
+// ==========================================================================
+// TAB NAVIGATION
+// ==========================================================================
+navBtns.forEach(btn => {
+  btn.addEventListener('click', function(e) {
+    e.preventDefault();
+    const tab = this.getAttribute('data-tab');
+    if (tab) switchTab(tab);
+  });
+});
+
+function updateNavIndicator() {
+  const indicator = document.getElementById('navIndicator');
+  const activeBtn = document.querySelector('.nav-btn.active');
+  if (!indicator || !activeBtn) return;
+
+  const left = activeBtn.offsetLeft;
+  const width = activeBtn.offsetWidth;
+  indicator.style.transform = `translateX(${left}px)`;
+  indicator.style.width = `${width}px`;
+}
+
+function switchTab(tabId) {
+  if (!tabId) return;
+
+  const currentNavBtns = document.querySelectorAll('.nav-btn');
+  currentNavBtns.forEach(b => {
+    const isActive = b.getAttribute('data-tab') === tabId;
+    b.classList.toggle('active', isActive);
+    b.setAttribute('aria-selected', isActive ? 'true' : 'false');
+  });
+
+  const targetId = `panel${tabId.charAt(0).toUpperCase() + tabId.slice(1)}`;
+  document.querySelectorAll('.tab-panel').forEach(p => {
+    const isTarget = p.id === targetId;
+    p.classList.toggle('active', isTarget);
+  });
+
+  requestAnimationFrame(updateNavIndicator);
+
+  chrome.storage.local.set({ lastActiveTab: tabId });
+
+  if (tabId === 'analytics') {
+    renderHeatmap();
+    updateStatistics();
+  } else if (tabId === 'log') {
+    renderSessionList();
   }
 }
 
-function updateUI() {
-  if (currentTimeEl) {
-    const now = new Date();
-    const h = now.getHours();
-    const m = now.getMinutes();
-    const ampm = h >= 12 ? 'PM' : 'AM';
-    const h12 = h % 12 || 12;
-    currentTimeEl.textContent = `${h12}:${m.toString().padStart(2, '0')} ${ampm}`;
+chrome.storage.local.get('lastActiveTab', (res) => {
+  if (res && res.lastActiveTab) {
+    switchTab(res.lastActiveTab);
+  } else {
+    requestAnimationFrame(updateNavIndicator);
   }
+});
 
-  chrome.runtime.sendMessage({ type: 'GET_STATUS' }, (response) => {
-    if (response) {
-      isRunning = response.isRunning;
-      displayTime = response.elapsedTime;
-      sessionStartTime = response.startTime;
-      currentDailyGoalMs = response.dailyGoalMs || 8 * 3600000;
-      currentDailyPauses = response.dailyPauses || {};
-      currentTimeOfDayBuckets = response.timeOfDayBuckets || { morning: 0, afternoon: 0, evening: 0, night: 0 };
-      currentLongestSessionMs = response.longestSessionMs || 0;
-      currentStartTimesSum = response.startTimesSum || 0;
-      currentStartTimesCount = response.startTimesCount || 0;
-      currentDailyBreaks = response.dailyBreaks || {};
-      currentLastPauseTimestamp = response.lastPauseTimestamp || 0;
-      
-      if (document.activeElement !== dailyGoalInput) {
-        dailyGoalInput.value = (currentDailyGoalMs / 3600000).toFixed(1);
-      }
-      
-      // Update body state for global animations
-      if (isRunning) {
-        document.body.classList.add('isRunning');
-        startStopBtn.textContent = 'Stop';
-        startStopBtn.classList.remove('primary');
-        startStopBtn.classList.add('stop');
-      } else {
-        document.body.classList.remove('isRunning');
-        startStopBtn.textContent = 'Start';
-        startStopBtn.classList.remove('stop');
-        startStopBtn.classList.add('primary');
-      }
+window.addEventListener('load', () => {
+  requestAnimationFrame(updateNavIndicator);
+});
+window.addEventListener('resize', updateNavIndicator);
 
-      // Only update daily logs if they changed to avoid flickering
-      const logsChanged = JSON.stringify(currentDailyLogs) !== JSON.stringify(response.dailyLogs);
-      if (logsChanged) {
-        currentDailyLogs = response.dailyLogs || {};
-        if (!historyPanel.classList.contains('hidden')) {
-          renderHeatmap();
-        }
-      }
-      
-      displayEl.textContent = formatTime(displayTime);
-      msEl.textContent = formatMs(displayTime);
-      
-      const progressRatio = Math.min(displayTime / currentDailyGoalMs, 1);
-      if (progressValueEl) {
-        progressValueEl.style.strokeDashoffset = 691 - (progressRatio * 691);
-      }
-      
-      if (isRunning) {
-        statusText.textContent = 'Running';
-        if (!animationFrameId) {
-          startAnimation();
-        }
-      } else {
-        statusText.textContent = displayTime > 0 ? 'Paused' : 'Inactive';
-        if (animationFrameId) {
-          cancelAnimationFrame(animationFrameId);
-          animationFrameId = null;
-        }
-      }
+// ==========================================================================
+// MODE SELECTOR & TAGS (Optional controls)
+// ==========================================================================
+if (modeStopwatchBtn) {
+  modeStopwatchBtn.addEventListener('click', () => {
+    if (timerMode === 'stopwatch') return;
+    setTimerMode('stopwatch');
+  });
+}
 
-      // Update Google Sheets Sync status
-      if (syncStatusEl && sheetsUrlInput && saveConnectBtn && syncNowBtn && autoSyncCheckbox) {
-        const savedUrl = response.googleSheetsUrl || '';
-        const syncStatus = response.googleSheetsSyncStatus || 'disconnected';
-        const autoSync = response.googleSheetsAutoSync || false;
-        const lastSync = response.googleSheetsLastSyncTime || 0;
-        
-        if (document.activeElement !== sheetsUrlInput) {
-          sheetsUrlInput.value = savedUrl;
-        }
-        
-        autoSyncCheckbox.checked = autoSync;
-        
-        syncStatusEl.className = 'sync-status';
-        
-        if (syncStatus === 'connected') {
-          syncStatusEl.classList.add('connected');
-          
-          let lastTimeStr = 'Never';
-          if (lastSync > 0) {
-            const diff = Date.now() - lastSync;
-            const mins = Math.floor(diff / 60000);
-            if (mins < 1) lastTimeStr = 'Just now';
-            else if (mins < 60) lastTimeStr = `${mins}m ago`;
-            else {
-              const hrs = Math.floor(mins / 60);
-              if (hrs < 24) lastTimeStr = `${hrs}h ago`;
-              else lastTimeStr = new Date(lastSync).toLocaleDateString();
-            }
-          }
-          syncStatusEl.textContent = `Connected (Synced: ${lastTimeStr})`;
-          syncNowBtn.disabled = false;
-          saveConnectBtn.textContent = sheetsUrlInput.value.trim() === '' ? 'Save' : 'Disconnect';
-        } else if (syncStatus === 'connecting') {
-          syncStatusEl.classList.add('connecting');
-          syncStatusEl.textContent = 'Connecting...';
-          syncNowBtn.disabled = true;
-          saveConnectBtn.textContent = 'Connecting...';
-        } else if (syncStatus === 'failed') {
-          syncStatusEl.classList.add('failed');
-          syncStatusEl.textContent = 'Failed';
-          syncNowBtn.disabled = !savedUrl;
-          saveConnectBtn.textContent = sheetsUrlInput.value.trim() === '' ? 'Save' : 'Reconnect';
-        } else {
-          syncStatusEl.classList.add('disconnected');
-          syncStatusEl.textContent = 'Not Connected';
-          syncNowBtn.disabled = true;
-          saveConnectBtn.textContent = 'Save & Sync';
-        }
-      }
+if (modePomodoroBtn) {
+  modePomodoroBtn.addEventListener('click', () => {
+    if (timerMode === 'pomodoro') return;
+    setTimerMode('pomodoro');
+  });
+}
 
-      // Live update selected day details if open
-      if (!historyPanel.classList.contains('hidden')) {
-        updateSelectedDateDetails();
+function setTimerMode(mode) {
+  timerMode = mode;
+  if (modeStopwatchBtn) modeStopwatchBtn.classList.toggle('active', mode === 'stopwatch');
+  if (modePomodoroBtn) modePomodoroBtn.classList.toggle('active', mode === 'pomodoro');
+  if (pomodoroPresetBar) pomodoroPresetBar.classList.toggle('hidden', mode !== 'pomodoro');
+
+  chrome.runtime.sendMessage({ type: 'SET_TIMER_MODE', mode }, () => {
+    updateUI();
+  });
+}
+
+if (pomoChips) {
+  pomoChips.forEach(chip => {
+    chip.addEventListener('click', () => {
+      pomoChips.forEach(c => c.classList.remove('active'));
+      chip.classList.add('active');
+      const mins = parseInt(chip.getAttribute('data-mins'), 10);
+      const ms = mins * 60 * 1000;
+      pomodoroDurationMs = ms;
+      pomodoroRemainingMs = ms;
+      chrome.runtime.sendMessage({ type: 'SET_POMODORO_DURATION', durationMs: ms }, () => {
+        showToast(`${mins}m sprint block configured`);
+        updateUI();
+      });
+    });
+  });
+}
+
+// Tag Selector & Dropdown
+if (tagSelectorBtn && tagDropdown) {
+  tagSelectorBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    tagDropdown.classList.toggle('hidden');
+    if (!tagDropdown.classList.contains('hidden') && customTagInput) {
+      customTagInput.focus();
+    }
+  });
+
+  document.addEventListener('click', (e) => {
+    if (!tagDropdown.contains(e.target) && e.target !== tagSelectorBtn) {
+      tagDropdown.classList.add('hidden');
+    }
+  });
+}
+
+if (tagOptItems) {
+  tagOptItems.forEach(item => {
+    item.addEventListener('click', () => {
+      const tag = item.getAttribute('data-tag');
+      setActiveTag(tag);
+      if (tagDropdown) tagDropdown.classList.add('hidden');
+    });
+  });
+}
+
+if (customTagInput) {
+  customTagInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      const val = customTagInput.value.trim();
+      if (val) {
+        setActiveTag(val);
+        customTagInput.value = '';
+        if (tagDropdown) tagDropdown.classList.add('hidden');
       }
     }
   });
 }
 
-function startAnimation() {
-  const step = () => {
-    chrome.runtime.sendMessage({ type: 'GET_STATUS' }, (response) => {
-      if (response && response.isRunning) {
-        displayEl.textContent = formatTime(response.elapsedTime);
-        msEl.textContent = formatMs(response.elapsedTime);
-        const progressRatio = Math.min(response.elapsedTime / currentDailyGoalMs, 1);
-        if (progressValueEl) {
-          progressValueEl.style.strokeDashoffset = 691 - (progressRatio * 691);
-        }
-        animationFrameId = requestAnimationFrame(step);
+function setActiveTag(tag) {
+  activeTag = tag;
+  if (activeTagLabel) activeTagLabel.textContent = tag;
+  if (tagOptItems) {
+    tagOptItems.forEach(item => {
+      item.classList.toggle('active', item.getAttribute('data-tag') === tag);
+    });
+  }
+  chrome.runtime.sendMessage({ type: 'SET_ACTIVE_TAG', tag }, () => {
+    showToast(`Tag set to ${tag}`);
+  });
+}
+
+// ==========================================================================
+// APP HEADER CLOCK
+// ==========================================================================
+function updateHeaderClock() {
+  if (!currentTimeEl) return;
+  const now = new Date();
+  let h = now.getHours();
+  const m = now.getMinutes().toString().padStart(2, '0');
+  const ampm = h >= 12 ? 'PM' : 'AM';
+  h = h % 12 || 12;
+  currentTimeEl.textContent = `${h}:${m} ${ampm}`;
+}
+setInterval(updateHeaderClock, 1000);
+updateHeaderClock();
+
+// ==========================================================================
+// CORE UI SYNC FUNCTION
+// ==========================================================================
+function updateUI() {
+  updateHeaderClock();
+
+  chrome.runtime.sendMessage({ type: 'GET_STATUS' }, (response) => {
+    if (!response) return;
+
+    isRunning = response.isRunning;
+    displayTime = response.elapsedTime;
+    sessionStartTime = response.startTime;
+    timerMode = response.timerMode || 'stopwatch';
+    pomodoroDurationMs = response.pomodoroDurationMs || 25 * 60 * 1000;
+    pomodoroRemainingMs = response.pomodoroRemainingMs !== undefined ? response.pomodoroRemainingMs : pomodoroDurationMs;
+    activeTag = response.activeTag || 'Deep Work';
+    dailySessions = response.dailySessions || [];
+    allDailySessions = response.allDailySessions || {};
+    dailyTags = response.dailyTags || {};
+    currentDailyLogs = response.dailyLogs || {};
+    currentDailyPauses = response.dailyPauses || {};
+    currentDailyBreaks = response.dailyBreaks || {};
+    currentDailyGoalMs = response.dailyGoalMs || 8 * 3600000;
+    currentTimeOfDayBuckets = response.timeOfDayBuckets || { morning: 0, afternoon: 0, evening: 0, night: 0 };
+    currentLongestSessionMs = response.longestSessionMs || 0;
+    currentStartTimesSum = response.startTimesSum || 0;
+    currentStartTimesCount = response.startTimesCount || 0;
+    currentLastPauseTimestamp = response.lastPauseTimestamp || 0;
+    currentStreakCount = response.streakCount || 0;
+    idleThreshold = response.idleThreshold || 900;
+    soundEnabled = response.soundEnabled !== undefined ? response.soundEnabled : true;
+
+    // Header Streak
+    if (streakCountEl) streakCountEl.textContent = `${currentStreakCount}d`;
+
+    // Active Tag & Mode Controls (if present)
+    if (activeTagLabel) activeTagLabel.textContent = activeTag;
+    if (tagOptItems) {
+      tagOptItems.forEach(item => {
+        item.classList.toggle('active', item.getAttribute('data-tag') === activeTag);
+      });
+    }
+
+    if (modeStopwatchBtn) modeStopwatchBtn.classList.toggle('active', timerMode === 'stopwatch');
+    if (modePomodoroBtn) modePomodoroBtn.classList.toggle('active', timerMode === 'pomodoro');
+    if (pomodoroPresetBar) pomodoroPresetBar.classList.toggle('hidden', timerMode !== 'pomodoro');
+
+    document.body.classList.toggle('isRunning', isRunning);
+
+    // Button states
+    if (isRunning) {
+      startStopBtn.classList.add('stop');
+      startBtnLabel.textContent = timerMode === 'pomodoro' ? 'Pause Sprint' : 'Pause Focus';
+      statusText.textContent = timerMode === 'pomodoro' ? 'IN SPRINT' : 'FOCUSING';
+    } else {
+      startStopBtn.classList.remove('stop');
+      startBtnLabel.textContent = timerMode === 'pomodoro' ? 'Start Sprint' : 'Start Focus';
+      statusText.textContent = (timerMode === 'pomodoro' ? pomodoroRemainingMs < pomodoroDurationMs : displayTime > 0) ? 'PAUSED' : 'READY';
+    }
+
+    // Dial Display
+    if (timerMode === 'pomodoro') {
+      const remaining = getLivePomodoroRemaining();
+      displayEl.textContent = formatTime(remaining);
+      msEl.textContent = isRunning ? formatMs(remaining) : '.00';
+
+      const completed = Math.max(0, pomodoroDurationMs - remaining);
+      const ratio = Math.min(1, completed / pomodoroDurationMs);
+      dialProgress.style.strokeDashoffset = CIRCLE_CIRCUMFERENCE - (ratio * CIRCLE_CIRCUMFERENCE);
+
+      const mins = Math.round(pomodoroDurationMs / 60000);
+      goalPercentText.textContent = `${mins}m Pomodoro Sprint`;
+    } else {
+      const elapsed = getLiveElapsed();
+      displayEl.textContent = formatTime(elapsed);
+      msEl.textContent = isRunning ? formatMs(elapsed) : formatMs(elapsed);
+
+      const ratio = Math.min(elapsed / currentDailyGoalMs, 1);
+      dialProgress.style.strokeDashoffset = CIRCLE_CIRCUMFERENCE - (ratio * CIRCLE_CIRCUMFERENCE);
+
+      const pct = Math.round((elapsed / currentDailyGoalMs) * 100);
+      const hrs = (currentDailyGoalMs / 3600000).toFixed(1);
+      goalPercentText.textContent = `${pct}% of ${hrs}h goal`;
+    }
+
+    // Animation loop
+    if (isRunning) {
+      if (!animationFrameId) startAnimation();
+    } else {
+      if (animationFrameId) {
+        cancelAnimationFrame(animationFrameId);
+        animationFrameId = null;
       }
-    });
-  };
-  animationFrameId = requestAnimationFrame(step);
+    }
+
+    // Update active tab contents
+    const activePanel = document.querySelector('.tab-panel.active');
+    if (activePanel) {
+      if (activePanel.id === 'panelAnalytics') updateStatistics();
+      else if (activePanel.id === 'panelLog') renderSessionList();
+    }
+
+    // Sync Settings fields
+    if (goalDisplayVal && dailyGoalInput) {
+      const goalHrs = (currentDailyGoalMs / 3600000).toFixed(1);
+      goalDisplayVal.textContent = `${goalHrs}h`;
+      dailyGoalInput.value = (currentDailyGoalMs / 3600000);
+      presetPills.forEach(pill => {
+        pill.classList.toggle('active', pill.getAttribute('data-hrs') === String(Math.round(currentDailyGoalMs / 3600000)));
+      });
+    }
+
+    if (idleSelect) idleSelect.value = String(idleThreshold);
+    if (soundToggle) soundToggle.checked = soundEnabled;
+
+    updateSheetsUI(response);
+  });
 }
 
-// Heatmap Logic
-function renderHeatmap() {
-  heatmapGrid.innerHTML = '';
-  const todayDate = new Date();
-  const startDate = new Date();
-  startDate.setDate(todayDate.getDate() - 364);
-  
-  const todayStr = getTodayDate();
-  
-  for (let i = 0; i < startDate.getDay(); i++) {
-    const emptyDiv = document.createElement('div');
-    emptyDiv.style.visibility = 'hidden';
-    heatmapGrid.appendChild(emptyDiv);
-  }
-  
-  for (let i = 0; i <= 364; i++) {
-    const d = new Date(startDate);
-    d.setDate(startDate.getDate() + i);
-    const dateStr = `${d.getFullYear()}-${(d.getMonth() + 1).toString().padStart(2, '0')}-${d.getDate().toString().padStart(2, '0')}`;
-    
-    const cell = document.createElement('div');
-    cell.classList.add('heatmap-cell');
-    
-    let timeMs = currentDailyLogs[dateStr] || 0;
-    if (dateStr === todayStr && isRunning && sessionStartTime) {
-      timeMs += (Date.now() - sessionStartTime);
-    }
-    
-    if (timeMs > 0) {
-      const hours = timeMs / 3600000;
-      if (hours < 2) cell.classList.add('heatmap-level-1');
-      else if (hours < 5) cell.classList.add('heatmap-level-2');
-      else if (hours < 8) cell.classList.add('heatmap-level-3');
-      else cell.classList.add('heatmap-level-4');
-    }
-    
-    if (dateStr === todayStr) {
-      cell.classList.add('today');
-      // pre-select today
-      setTimeout(() => cell.click(), 10);
-    }
-    
-    cell.addEventListener('click', () => {
-      document.querySelectorAll('.heatmap-cell').forEach(el => el.classList.remove('selected'));
-      cell.classList.add('selected');
-      selectedDateStr = dateStr;
-      updateSelectedDateDetails();
+// ==========================================================================
+// INSTANT START & RESET BUTTONS (ZERO LAG)
+// ==========================================================================
+startStopBtn.addEventListener('click', (e) => {
+  e.preventDefault();
+  if (isRunning) {
+    playChime('stop');
+    chrome.runtime.sendMessage({ type: 'STOP' }, () => {
+      updateUI();
     });
-    
-    heatmapGrid.appendChild(cell);
+  } else {
+    playChime('start');
+    chrome.runtime.sendMessage({ 
+      type: 'START', 
+      tag: activeTag, 
+      mode: timerMode 
+    }, () => {
+      updateUI();
+    });
   }
-  
-  // scroll to right
-  const wrapper = document.querySelector('.heatmap-wrapper');
-  if (wrapper) wrapper.scrollLeft = wrapper.scrollWidth;
-  
-  updateStatistics();
-}
+});
 
+resetBtn.addEventListener('click', (e) => {
+  e.preventDefault();
+  if (confirm('Reset timer for today? (Your session log will be kept)')) {
+    playChime('stop');
+    chrome.runtime.sendMessage({ type: 'RESET' }, () => {
+      showToast('Timer reset');
+      updateUI();
+    });
+  }
+});
+
+// Keyboard shortcuts
+window.addEventListener('keydown', (e) => {
+  const tag = e.target.tagName.toLowerCase();
+  if (tag === 'input' || tag === 'textarea' || tag === 'select') return;
+
+  if (e.code === 'Space') {
+    e.preventDefault();
+    startStopBtn.click();
+  } else if (e.code === 'KeyR') {
+    e.preventDefault();
+    resetBtn.click();
+  } else if (e.key === '1') {
+    switchTab('timer');
+  } else if (e.key === '2') {
+    switchTab('analytics');
+  } else if (e.key === '3') {
+    switchTab('log');
+  } else if (e.key === '4') {
+    switchTab('settings');
+  }
+});
+
+// ==========================================================================
+// TAB 2: INSIGHTS & HEATMAP
+// ==========================================================================
 function updateStatistics() {
   const now = new Date();
   const todayStr = getTodayDate();
@@ -389,9 +662,7 @@ function updateStatistics() {
   let monthlyTotal = 0;
   let totalLogs = 0;
   let daysWithData = 0;
-  
   let bestDayMs = 0;
-  let worstDayMs = Infinity;
 
   const currentMonth = now.getMonth();
   const currentYear = now.getFullYear();
@@ -400,45 +671,88 @@ function updateStatistics() {
   startOfWeek.setDate(now.getDate() - now.getDay());
   startOfWeek.setHours(0, 0, 0, 0);
 
+  let todayTotal = currentDailyLogs[todayStr] || 0;
+  if (isRunning && sessionStartTime) {
+    todayTotal += (Date.now() - sessionStartTime);
+  }
+
   Object.entries(currentDailyLogs).forEach(([dateStr, ms]) => {
+    let val = ms;
+    if (dateStr === todayStr) val = todayTotal;
+
     const logDate = new Date(dateStr);
-    
     if (logDate.getMonth() === currentMonth && logDate.getFullYear() === currentYear) {
-      monthlyTotal += ms;
+      monthlyTotal += val;
     }
-
     if (logDate >= startOfWeek && logDate <= now) {
-      weeklyTotal += ms;
-      if (ms > bestDayMs) bestDayMs = ms;
-      if (ms > 0 && ms < worstDayMs) worstDayMs = ms;
+      weeklyTotal += val;
+      if (val > bestDayMs) bestDayMs = val;
     }
-
-    totalLogs += ms;
-    daysWithData++;
+    if (val > 0) {
+      totalLogs += val;
+      daysWithData++;
+    }
   });
 
+  if (kpiToday) kpiToday.textContent = formatShortTime(todayTotal);
+  if (statWeekly) statWeekly.textContent = formatShortTime(weeklyTotal);
+  if (statMonthly) statMonthly.textContent = formatShortTime(monthlyTotal);
+  if (statAverage) statAverage.textContent = daysWithData > 0 ? formatShortTime(totalLogs / daysWithData) : '0m';
+  if (bestDayBadge) bestDayBadge.textContent = bestDayMs > 0 ? formatShortTime(bestDayMs) : '-';
 
-
-  document.getElementById('statWeekly').textContent = formatShortTime(weeklyTotal);
-  document.getElementById('statMonthly').textContent = formatShortTime(monthlyTotal);
-  document.getElementById('statAverage').textContent = daysWithData > 0 ? formatShortTime(totalLogs / daysWithData) : '0h 0m';
-  
-  bestDayBadge.textContent = bestDayMs > 0 ? formatShortTime(bestDayMs) : '-';
-  worstDayBadge.textContent = (worstDayMs < Infinity && worstDayMs > 0) ? formatShortTime(worstDayMs) : '-';
-  
-  if (currentStartTimesCount > 0) {
-    const avgMins = currentStartTimesSum / currentStartTimesCount;
-    const h = Math.floor(avgMins / 60);
-    const m = Math.floor(avgMins % 60);
-    const ampm = h >= 12 ? 'PM' : 'AM';
-    const h12 = h % 12 || 12;
-    avgStartTimeEl.textContent = `${h12}:${m.toString().padStart(2, '0')} ${ampm}`;
-  } else {
-    avgStartTimeEl.textContent = '-';
+  if (avgStartTimeEl) {
+    if (currentStartTimesCount > 0) {
+      const avgMins = currentStartTimesSum / currentStartTimesCount;
+      const h = Math.floor(avgMins / 60);
+      const m = Math.floor(avgMins % 60);
+      const ampm = h >= 12 ? 'PM' : 'AM';
+      const h12 = h % 12 || 12;
+      avgStartTimeEl.textContent = `${h12}:${m.toString().padStart(2, '0')} ${ampm}`;
+    } else {
+      avgStartTimeEl.textContent = '-';
+    }
   }
-  
-  longestSessionTimeEl.textContent = currentLongestSessionMs > 0 ? formatShortTime(currentLongestSessionMs) : '-';
-  
+
+  if (longestSessionTimeEl) {
+    longestSessionTimeEl.textContent = currentLongestSessionMs > 0 ? formatShortTime(currentLongestSessionMs) : '-';
+  }
+
+  const pauses = currentDailyPauses[todayStr] || { manual: 0, idle: 0 };
+  if (dayPausesCombined) {
+    dayPausesCombined.textContent = (pauses.manual + pauses.idle).toString();
+  }
+
+  // Goal Progress
+  const goalRatio = Math.min(Math.round((todayTotal / currentDailyGoalMs) * 100), 100);
+  const goalHours = (currentDailyGoalMs / 3600000).toFixed(1);
+  const workedHours = (todayTotal / 3600000).toFixed(1);
+  if (dayGoalVal) dayGoalVal.textContent = `${workedHours}h / ${goalHours}h (${goalRatio}%)`;
+  if (dayGoalBar) dayGoalBar.style.width = `${goalRatio}%`;
+
+  // Work vs Break
+  let breakMs = currentDailyBreaks[todayStr] || 0;
+  if (!isRunning && currentLastPauseTimestamp > 0 && todayTotal < currentDailyGoalMs) {
+    const liveBreak = Math.min(Date.now() - currentLastPauseTimestamp, 2 * 3600000);
+    breakMs += liveBreak;
+  }
+  const total = todayTotal + breakMs;
+  if (total > 0) {
+    const workPct = Math.round((todayTotal / total) * 100);
+    const breakPct = 100 - workPct;
+    if (dayRatioVal) dayRatioVal.textContent = `${workPct}% Work / ${breakPct}% Break`;
+    if (dayRatioWorkBar) dayRatioWorkBar.style.width = `${workPct}%`;
+    if (dayRatioBreakBar) dayRatioBreakBar.style.width = `${breakPct}%`;
+    if (dayWorkHrs) dayWorkHrs.textContent = formatShortTime(todayTotal);
+    if (dayBreakHrs) dayBreakHrs.textContent = formatShortTime(breakMs);
+  } else {
+    if (dayRatioVal) dayRatioVal.textContent = '100% Work';
+    if (dayRatioWorkBar) dayRatioWorkBar.style.width = '100%';
+    if (dayRatioBreakBar) dayRatioBreakBar.style.width = '0%';
+    if (dayWorkHrs) dayWorkHrs.textContent = '0m';
+    if (dayBreakHrs) dayBreakHrs.textContent = '0m';
+  }
+
+  // Time of Day distribution
   const maxBucket = Math.max(
     currentTimeOfDayBuckets.morning, 
     currentTimeOfDayBuckets.afternoon, 
@@ -446,135 +760,415 @@ function updateStatistics() {
     currentTimeOfDayBuckets.night, 
     1
   );
-  
-  barMorning.style.height = `${(currentTimeOfDayBuckets.morning / maxBucket) * 100}%`;
-  barAfternoon.style.height = `${(currentTimeOfDayBuckets.afternoon / maxBucket) * 100}%`;
-  barEvening.style.height = `${(currentTimeOfDayBuckets.evening / maxBucket) * 100}%`;
-  barNight.style.height = `${(currentTimeOfDayBuckets.night / maxBucket) * 100}%`;
+  if (barMorning) barMorning.style.height = `${(currentTimeOfDayBuckets.morning / maxBucket) * 100}%`;
+  if (barAfternoon) barAfternoon.style.height = `${(currentTimeOfDayBuckets.afternoon / maxBucket) * 100}%`;
+  if (barEvening) barEvening.style.height = `${(currentTimeOfDayBuckets.evening / maxBucket) * 100}%`;
+  if (barNight) barNight.style.height = `${(currentTimeOfDayBuckets.night / maxBucket) * 100}%`;
 }
 
-historyToggleBtn.addEventListener('click', () => {
-  const isHidden = historyPanel.classList.toggle('hidden');
-  document.body.classList.toggle('history-open', !isHidden);
-  historyToggleBtn.textContent = isHidden ? 'View History' : 'Hide History';
-  if (!isHidden) {
-    renderHeatmap();
-  }
-});
+function renderHeatmap() {
+  if (!heatmapGrid) return;
+  heatmapGrid.innerHTML = '';
+  const todayDate = new Date();
+  const startDate = new Date();
+  startDate.setDate(todayDate.getDate() - 364);
+  const todayStr = getTodayDate();
 
-startStopBtn.addEventListener('click', () => {
-  if (isRunning) {
-    chrome.runtime.sendMessage({ type: 'STOP' }, updateUI);
-  } else {
-    chrome.runtime.sendMessage({ type: 'START' }, updateUI);
+  for (let i = 0; i < startDate.getDay(); i++) {
+    const emptyDiv = document.createElement('div');
+    emptyDiv.style.visibility = 'hidden';
+    heatmapGrid.appendChild(emptyDiv);
   }
-});
 
-// Google Sheets Sync Listeners
-if (saveConnectBtn && sheetsUrlInput && syncStatusEl && syncNowBtn && autoSyncCheckbox && guideToggleBtn && guideContent && copyScriptBtn) {
-  if (configToggleBtn && sheetsConfigPanel) {
-    configToggleBtn.addEventListener('click', () => {
-      const isHidden = sheetsConfigPanel.classList.toggle('hidden');
-      configToggleBtn.classList.toggle('active', !isHidden);
+  for (let i = 0; i <= 364; i++) {
+    const d = new Date(startDate);
+    d.setDate(startDate.getDate() + i);
+    const dateStr = `${d.getFullYear()}-${(d.getMonth() + 1).toString().padStart(2, '0')}-${d.getDate().toString().padStart(2, '0')}`;
+
+    const cell = document.createElement('div');
+    cell.classList.add('heatmap-cell');
+
+    let timeMs = currentDailyLogs[dateStr] || 0;
+    if (dateStr === todayStr && isRunning && sessionStartTime) {
+      timeMs += (Date.now() - sessionStartTime);
+    }
+
+    if (timeMs > 0) {
+      const hours = timeMs / 3600000;
+      if (hours < 2) cell.classList.add('heatmap-lvl-1');
+      else if (hours < 5) cell.classList.add('heatmap-lvl-2');
+      else if (hours < 8) cell.classList.add('heatmap-lvl-3');
+      else cell.classList.add('heatmap-lvl-4');
+    }
+
+    if (dateStr === todayStr) {
+      cell.classList.add('selected');
+      updateSelectedDateDetails(dateStr, timeMs);
+    }
+
+    cell.addEventListener('click', () => {
+      document.querySelectorAll('.heatmap-cell').forEach(el => el.classList.remove('selected'));
+      cell.classList.add('selected');
+      updateSelectedDateDetails(dateStr, timeMs);
     });
+
+    heatmapGrid.appendChild(cell);
   }
 
-  saveConnectBtn.addEventListener('click', () => {
-    const url = sheetsUrlInput.value.trim();
+  const container = document.querySelector('.heatmap-container');
+  if (container) container.scrollLeft = container.scrollWidth;
+}
+
+function updateSelectedDateDetails(dateStr, timeMs) {
+  if (!detailsDateEl || !detailsTimeEl) return;
+  const parts = dateStr.split('-');
+  const d = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
+  detailsDateEl.textContent = d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
+  detailsTimeEl.textContent = formatTime(timeMs);
+}
+
+// ==========================================================================
+// TAB 3: SESSIONS / LOG
+// ==========================================================================
+function renderSessionList() {
+  if (!sessionList || !sessionCount) return;
+  sessionList.innerHTML = '';
+  sessionCount.textContent = `${dailySessions.length} recorded`;
+
+  if (dailySessions.length === 0) {
+    sessionList.innerHTML = `
+      <div class="empty-log-state">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="empty-svg">
+          <circle cx="12" cy="12" r="10"></circle>
+          <polyline points="12 6 12 12 14 14"></polyline>
+        </svg>
+        <span class="empty-title">No sessions yet today</span>
+        <span class="empty-sub">Focus intervals will appear here automatically when you start and pause the timer.</span>
+      </div>
+    `;
+    return;
+  }
+
+  dailySessions.forEach(session => {
+    const row = document.createElement('div');
+    row.classList.add('session-row');
+
+    const modeIcon = session.mode === 'pomodoro' ? '🍅' : '⏱️';
+    const startStr = formatClockTime(session.startTime);
+    const endStr = formatClockTime(session.endTime);
+    const durationStr = formatShortTime(session.duration);
+
+    row.innerHTML = `
+      <div class="session-row-left">
+        <span class="session-badge">${modeIcon}</span>
+        <div class="session-meta-info">
+          <span class="session-tag-name">${escapeHtml(session.tag || 'Deep Work')}</span>
+          <span class="session-time-str">${startStr} &rarr; ${endStr}</span>
+        </div>
+      </div>
+      <div class="session-row-right">
+        <span class="session-time-spent">${durationStr}</span>
+        <button class="session-remove-btn" title="Delete interval" data-id="${session.id}">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13">
+            <line x1="18" y1="6" x2="6" y2="18"></line>
+            <line x1="6" y1="6" x2="18" y2="18"></line>
+          </svg>
+        </button>
+      </div>
+    `;
+
+    const delBtn = row.querySelector('.session-remove-btn');
+    delBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      row.classList.add('exiting');
+      setTimeout(() => {
+        chrome.runtime.sendMessage({ type: 'DELETE_SESSION', sessionId: session.id }, () => {
+          showToast('Session removed');
+          updateUI();
+        });
+      }, 220);
+    });
+
+    sessionList.appendChild(row);
+  });
+}
+
+function escapeHtml(str) {
+  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+if (copySummaryBtn) {
+  copySummaryBtn.addEventListener('click', () => {
+    const todayStr = getTodayDate();
+    const d = new Date();
+    const dateFormatted = d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
     
+    let liveToday = currentDailyLogs[todayStr] || 0;
+    if (isRunning && sessionStartTime) {
+      liveToday += (Date.now() - sessionStartTime);
+    }
+    const workedHours = (liveToday / 3600000).toFixed(1);
+    const goalHours = (currentDailyGoalMs / 3600000).toFixed(1);
+    const goalPct = Math.round((liveToday / currentDailyGoalMs) * 100);
+
+    let summaryText = `🎯 Focus Flow Summary — ${dateFormatted}\n`;
+    summaryText += `⏱️ Focus Time: ${formatShortTime(liveToday)} (${workedHours}h / ${goalHours}h • ${goalPct}%)\n`;
+    summaryText += `⚡ Active Streak: ${currentStreakCount} day${currentStreakCount === 1 ? '' : 's'}\n`;
+    summaryText += `📋 Sessions: ${dailySessions.length} recorded\n`;
+
+    if (Object.keys(dailyTags).length > 0) {
+      summaryText += `🏷️ Tasks Breakdown:\n`;
+      Object.entries(dailyTags).forEach(([tag, ms]) => {
+        summaryText += `  • ${tag}: ${formatShortTime(ms)}\n`;
+      });
+    }
+
+    navigator.clipboard.writeText(summaryText).then(() => {
+      showToast('Standup summary copied!');
+    }).catch(() => {
+      showToast('Could not copy');
+    });
+  });
+}
+
+if (exportCsvBtn) {
+  exportCsvBtn.addEventListener('click', () => {
+    let csvContent = 'Date,Session ID,Mode,Tag,Start Time,End Time,Duration Minutes,Formatted\n';
+    const allDates = Object.keys(allDailySessions).sort().reverse();
+
+    if (allDates.length === 0) {
+      const todayStr = getTodayDate();
+      csvContent += `"${todayStr}","N/A","stopwatch","Deep Work","","",${((currentDailyLogs[todayStr] || 0) / 60000).toFixed(1)},"${formatShortTime(currentDailyLogs[todayStr] || 0)}"\n`;
+    } else {
+      allDates.forEach(date => {
+        const sessions = allDailySessions[date] || [];
+        sessions.forEach(s => {
+          const durationMins = (s.duration / 60000).toFixed(1);
+          const startStr = new Date(s.startTime).toISOString();
+          const endStr = new Date(s.endTime).toISOString();
+          csvContent += `"${date}","${s.id}","${s.mode}","${s.tag}","${startStr}","${endStr}",${durationMins},"${formatShortTime(s.duration)}"\n`;
+        });
+      });
+    }
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    link.setAttribute('download', `focus-flow-${getTodayDate()}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    showToast('CSV downloaded!');
+  });
+}
+
+if (clearTodayBtn) {
+  clearTodayBtn.addEventListener('click', () => {
+    if (confirm('Clear today\'s timer progress and all recorded sessions?')) {
+      chrome.runtime.sendMessage({ type: 'CLEAR_TODAY_LOGS' }, () => {
+        showToast('Today cleared');
+        updateUI();
+      });
+    }
+  });
+}
+
+// ==========================================================================
+// TAB 4: SETTINGS
+// ==========================================================================
+if (goalMinusBtn && goalPlusBtn && dailyGoalInput) {
+  goalMinusBtn.addEventListener('click', () => {
+    let current = parseFloat(dailyGoalInput.value) || 8;
+    if (current > 1) {
+      current = Math.max(1, current - 0.5);
+      saveDailyGoal(current);
+    }
+  });
+
+  goalPlusBtn.addEventListener('click', () => {
+    let current = parseFloat(dailyGoalInput.value) || 8;
+    if (current < 24) {
+      current = Math.min(24, current + 0.5);
+      saveDailyGoal(current);
+    }
+  });
+
+  presetPills.forEach(pill => {
+    pill.addEventListener('click', () => {
+      presetPills.forEach(p => p.classList.remove('active'));
+      pill.classList.add('active');
+      const hrs = parseFloat(pill.getAttribute('data-hrs'));
+      saveDailyGoal(hrs);
+    });
+  });
+}
+
+function saveDailyGoal(hours) {
+  dailyGoalInput.value = hours;
+  if (goalDisplayVal) goalDisplayVal.textContent = `${hours.toFixed(1)}h`;
+  chrome.runtime.sendMessage({ type: 'UPDATE_GOAL', dailyGoalMs: hours * 3600000 }, () => {
+    showToast(`Target goal: ${hours}h`);
+    updateUI();
+  });
+}
+
+if (idleSelect) {
+  idleSelect.addEventListener('change', (e) => {
+    const threshold = parseInt(e.target.value, 10);
+    chrome.runtime.sendMessage({ type: 'SET_IDLE_THRESHOLD', threshold }, () => {
+      showToast(threshold === 0 ? 'Auto-pause disabled' : `Auto-pause set to ${threshold / 60}m`);
+    });
+  });
+}
+
+if (soundToggle) {
+  soundToggle.addEventListener('change', (e) => {
+    soundEnabled = e.target.checked;
+    chrome.runtime.sendMessage({ type: 'SET_SOUND_ENABLED', soundEnabled }, () => {
+      if (soundEnabled) playChime('start');
+      showToast(soundEnabled ? 'Audio chimes active' : 'Audio chimes muted');
+    });
+  });
+}
+
+// ==========================================================================
+// GOOGLE SHEETS CLOUD SYNC
+// ==========================================================================
+function updateSheetsUI(response) {
+  if (!syncStatusEl) return;
+  const status = response.googleSheetsSyncStatus || 'disconnected';
+  const savedUrl = response.googleSheetsUrl || '';
+  const lastSync = response.googleSheetsLastSyncTime || 0;
+
+  if (document.activeElement !== sheetsUrlInput && sheetsUrlInput) {
+    sheetsUrlInput.value = savedUrl;
+  }
+  if (autoSyncCheckbox) {
+    autoSyncCheckbox.checked = response.googleSheetsAutoSync || false;
+  }
+
+  syncStatusEl.className = 'sync-badge';
+  if (status === 'connected') {
+    syncStatusEl.classList.add('connected');
+    let lastTimeStr = 'Just now';
+    if (lastSync > 0) {
+      const diff = Date.now() - lastSync;
+      const mins = Math.floor(diff / 60000);
+      if (mins < 1) lastTimeStr = 'Just now';
+      else if (mins < 60) lastTimeStr = `${mins}m ago`;
+      else lastTimeStr = `${Math.floor(mins / 60)}h ago`;
+    }
+    syncStatusEl.textContent = 'Connected';
+    if (syncStatusDesc) syncStatusDesc.textContent = `Synced: ${lastTimeStr}`;
+    if (syncNowBtn) syncNowBtn.disabled = false;
+    if (saveConnectBtn) saveConnectBtn.textContent = 'Disconnect';
+  } else if (status === 'connecting') {
+    syncStatusEl.classList.add('connecting');
+    syncStatusEl.textContent = 'Connecting...';
+    if (syncNowBtn) syncNowBtn.disabled = true;
+    if (saveConnectBtn) saveConnectBtn.textContent = 'Connecting...';
+  } else {
+    syncStatusEl.classList.add('disconnected');
+    syncStatusEl.textContent = 'Not Connected';
+    if (syncStatusDesc) syncStatusDesc.textContent = 'Continuous cloud backup';
+    if (syncNowBtn) syncNowBtn.disabled = true;
+    if (saveConnectBtn) saveConnectBtn.textContent = 'Connect';
+  }
+}
+
+if (saveConnectBtn && sheetsUrlInput) {
+  saveConnectBtn.addEventListener('click', () => {
     if (saveConnectBtn.textContent === 'Disconnect') {
       sheetsUrlInput.value = '';
-      chrome.runtime.sendMessage({ type: 'DISCONNECT_SHEETS' }, updateUI);
+      chrome.runtime.sendMessage({ type: 'DISCONNECT_SHEETS' }, () => {
+        showToast('Disconnected');
+        updateUI();
+      });
       return;
     }
-    
+
+    const url = sheetsUrlInput.value.trim();
     if (!url) {
-      chrome.runtime.sendMessage({ type: 'DISCONNECT_SHEETS' }, updateUI);
+      showToast('Paste a Web App URL');
       return;
     }
-    
-    syncStatusEl.textContent = 'Connecting...';
-    syncStatusEl.className = 'sync-status connecting';
-    saveConnectBtn.textContent = 'Connecting...';
+
     saveConnectBtn.disabled = true;
-    syncNowBtn.disabled = true;
-    
-    chrome.runtime.sendMessage({ type: 'TEST_CONNECT', url: url }, (response) => {
+    saveConnectBtn.textContent = 'Connecting...';
+
+    chrome.runtime.sendMessage({ type: 'TEST_CONNECT', url }, (res) => {
       saveConnectBtn.disabled = false;
-      if (response && response.success) {
-        alert('Connected successfully! Google Sheet has been populated with your current data.');
+      if (res && res.success) {
+        showToast('Connected successfully!');
       } else {
-        alert('Connection failed: ' + (response ? response.error : 'Unknown error'));
+        showToast('Connection failed');
       }
       updateUI();
     });
   });
+}
 
+if (syncNowBtn) {
   syncNowBtn.addEventListener('click', () => {
     syncNowBtn.disabled = true;
-    const oldText = syncNowBtn.textContent;
     syncNowBtn.textContent = 'Syncing...';
-    
-    chrome.runtime.sendMessage({ type: 'SYNC_NOW' }, (response) => {
+    chrome.runtime.sendMessage({ type: 'SYNC_NOW' }, (res) => {
       syncNowBtn.disabled = false;
-      syncNowBtn.textContent = oldText;
-      if (response && response.success) {
-        alert('Sync complete! ' + response.count + ' rows updated.');
+      syncNowBtn.textContent = 'Sync Now';
+      if (res && res.success) {
+        showToast(`Synced ${res.count} records!`);
       } else {
-        alert('Sync failed: ' + (response ? response.error : 'Unknown error'));
+        showToast('Sync failed');
       }
       updateUI();
     });
   });
+}
 
+if (autoSyncCheckbox) {
   autoSyncCheckbox.addEventListener('change', (e) => {
-    chrome.runtime.sendMessage({ type: 'UPDATE_AUTO_SYNC', autoSync: e.target.checked }, updateUI);
+    chrome.runtime.sendMessage({ type: 'UPDATE_AUTO_SYNC', autoSync: e.target.checked }, () => {
+      showToast(e.target.checked ? 'Auto-sync active' : 'Auto-sync off');
+    });
   });
+}
 
+if (guideToggleBtn && guideContent) {
   guideToggleBtn.addEventListener('click', () => {
-    const isOpen = guideContent.classList.toggle('hidden');
-    guideToggleBtn.classList.toggle('open', !isOpen);
-    guideToggleBtn.textContent = isOpen ? 'Show Setup Guide' : 'Hide Setup Guide';
+    const isHidden = guideContent.classList.toggle('hidden');
+    guideToggleBtn.classList.toggle('open', !isHidden);
+    guideToggleBtn.classList.toggle('expanded', !isHidden);
   });
+}
 
+if (copyScriptBtn) {
   copyScriptBtn.addEventListener('click', () => {
     const scriptCode = `function doPost(e) {
   try {
     var data = JSON.parse(e.postData.contents);
     var sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
     
-    // Create header row if the sheet is completely empty
     if (sheet.getLastRow() === 0) {
       sheet.appendRow(["Date", "Work Hours", "Break Hours", "Manual Pauses", "Idle Pauses", "Work %", "Last Updated"]);
       sheet.getRange("A1:G1").setFontWeight("bold").setBackground("#1e293b").setFontColor("#ffffff");
     }
     
-    // Helper function to standardise any date format to YYYY-MM-DD cleanly
     function parseDateString(str) {
       if (!str) return "";
       str = String(str).trim();
-      if (/^\d{4}-\d{2}-\d{2}$/.test(str)) {
-        return str;
-      }
-      var m = str.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
-      if (m) {
-        var month = ("0" + m[1]).slice(-2);
-        var day = ("0" + m[2]).slice(-2);
-        return m[3] + "-" + month + "-" + day;
-      }
+      if (/^\\d{4}-\\d{2}-\\d{2}$/.test(str)) return str;
+      var m = str.match(/^(\\d{1,2})[\\/\\-](\\d{1,2})[\\/\\-](\\d{4})$/);
+      if (m) return m[3] + "-" + ("0" + m[1]).slice(-2) + "-" + ("0" + m[2]).slice(-2);
       try {
         var d = new Date(str);
         if (!isNaN(d.getTime())) {
-          var year = d.getFullYear();
-          var month = ("0" + (d.getMonth() + 1)).slice(-2);
-          var day = ("0" + d.getDate()).slice(-2);
-          return year + "-" + month + "-" + day;
+          return d.getFullYear() + "-" + ("0" + (d.getMonth() + 1)).slice(-2) + "-" + ("0" + d.getDate()).slice(-2);
         }
       } catch (e) {}
       return str;
     }
     
-    // Build a map of existing dates using displayed string values (bypasses JVM timezone-shifting)
     var dateRowMap = {};
     if (sheet.getLastRow() > 1) {
       var existingData = sheet.getRange(2, 1, sheet.getLastRow() - 1, 7).getDisplayValues();
@@ -582,9 +1176,7 @@ if (saveConnectBtn && sheetsUrlInput && syncStatusEl && syncNowBtn && autoSyncCh
         var rawDateVal = existingData[r][0];
         if (rawDateVal) {
           var parsedKey = parseDateString(rawDateVal);
-          if (parsedKey) {
-            dateRowMap[parsedKey] = r + 2; // Rows are 1-indexed, data starts at row 2
-          }
+          if (parsedKey) dateRowMap[parsedKey] = r + 2;
         }
       }
     }
@@ -592,12 +1184,11 @@ if (saveConnectBtn && sheetsUrlInput && syncStatusEl && syncNowBtn && autoSyncCh
     var logs = data.dailyLogs || {};
     var breaks = data.dailyBreaks || {};
     var pauses = data.dailyPauses || {};
-    
     var dates = Object.keys(logs).concat(Object.keys(breaks)).concat(Object.keys(pauses));
     dates = Array.from(new Set(dates)).sort();
     
     if (dates.length === 0) {
-      return ContentService.createTextOutput(JSON.stringify({ success: true, count: 0, message: "No data to sync." }))
+      return ContentService.createTextOutput(JSON.stringify({ success: true, count: 0 }))
         .setMimeType(ContentService.MimeType.JSON);
     }
     
@@ -612,35 +1203,20 @@ if (saveConnectBtn && sheetsUrlInput && syncStatusEl && syncNowBtn && autoSyncCh
       
       var workHours = Number((workMs / 3600000).toFixed(2));
       var breakHours = Number((breakMs / 3600000).toFixed(2));
-      var manual = pauseData.manual || 0;
-      var idle = pauseData.idle || 0;
-      
       var totalHours = workHours + breakHours;
       var workPct = totalHours > 0 ? Math.round((workHours / totalHours) * 100) : 0;
       
-      var rowValues = [
-        dateStr,
-        workHours,
-        breakHours,
-        manual,
-        idle,
-        workPct + "%",
-        nowStr
-      ];
+      var rowValues = [dateStr, workHours, breakHours, pauseData.manual || 0, pauseData.idle || 0, workPct + "%", nowStr];
       
       if (dateRowMap[dateStr]) {
-        // Update existing row
-        var targetRow = dateRowMap[dateStr];
-        sheet.getRange(targetRow, 1, 1, 7).setValues([rowValues]);
+        sheet.getRange(dateRowMap[dateStr], 1, 1, 7).setValues([rowValues]);
       } else {
-        // Append new row
         sheet.appendRow(rowValues);
         dateRowMap[dateStr] = sheet.getLastRow();
       }
       updatedCount++;
     }
     
-    // Sort rows by Date (Column A) ascending to keep everything perfectly chronological
     if (sheet.getLastRow() > 1) {
       sheet.getRange(2, 1, sheet.getLastRow() - 1, 7).sort({column: 1, ascending: true});
       sheet.autoResizeColumns(1, 7);
@@ -648,7 +1224,6 @@ if (saveConnectBtn && sheetsUrlInput && syncStatusEl && syncNowBtn && autoSyncCh
     
     return ContentService.createTextOutput(JSON.stringify({ success: true, count: updatedCount }))
       .setMimeType(ContentService.MimeType.JSON);
-    
   } catch (error) {
     return ContentService.createTextOutput(JSON.stringify({ success: false, error: error.toString() }))
       .setMimeType(ContentService.MimeType.JSON);
@@ -656,35 +1231,24 @@ if (saveConnectBtn && sheetsUrlInput && syncStatusEl && syncNowBtn && autoSyncCh
 }`;
 
     navigator.clipboard.writeText(scriptCode).then(() => {
-      copyScriptBtn.textContent = 'Copied Code!';
-      copyScriptBtn.classList.add('success');
-      setTimeout(() => {
-        copyScriptBtn.textContent = 'Copy Apps Script Code';
-        copyScriptBtn.classList.remove('success');
-      }, 2000);
-    }).catch(err => {
-      console.error('Failed to copy text: ', err);
-      alert('Could not auto-copy. Please select and copy code manually.');
+      showToast('Apps Script code copied!');
+    }).catch(() => {
+      showToast('Could not copy');
     });
   });
 }
 
-const resetBtn = document.getElementById('resetBtn');
-resetBtn.addEventListener('click', () => {
-  if (confirm('Are you sure you want to reset today\'s time? This will not affect your history.')) {
-    chrome.runtime.sendMessage({ type: 'RESET' }, updateUI);
-  }
-});
-
-// Initial load
-updateUI();
-
-// Sync every second
-setInterval(updateUI, 1000);
-
+// Background event listener
 chrome.runtime.onMessage.addListener((message) => {
   if (message.type === 'STATE_UPDATED') {
+    updateUI();
+  } else if (message.type === 'POMODORO_COMPLETED') {
+    playChime('finish');
+    showToast('🎉 Pomodoro Sprint Complete!');
     updateUI();
   }
 });
 
+// Boot & gentle 1s sync interval (replaces 60fps IPC flood!)
+updateUI();
+setInterval(updateUI, 1000);

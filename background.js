@@ -1,15 +1,12 @@
-// Feature Toggle: Disable notifications for now
-const notificationsEnabled = false;
+// Feature Toggle: Notifications
+let notificationsEnabled = true;
 
-// Override chrome.notifications.create to intercept and disable notifications programmatically
+// Safe wrapper for notifications
 const originalCreate = chrome.notifications?.create;
 if (chrome.notifications) {
   chrome.notifications.create = function (notificationId, options, callback) {
     if (!notificationsEnabled) {
-      console.log('Notification suppressed (notifications disabled):', notificationId, options);
-      if (callback) {
-        callback(notificationId);
-      }
+      if (callback) callback(notificationId);
       return;
     }
     if (originalCreate) {
@@ -24,9 +21,19 @@ let elapsedTime = 0;
 let isRunning = false;
 let dailyLogs = {};
 let dailyPauses = {};
-let dailyBreaks = {}; // New: Track break durations daily
+let dailyBreaks = {}; 
 let dailyGoalMs = 8 * 60 * 60 * 1000;
 let lastWeeklyReportDate = '';
+
+// New Minimal Classic Productivity Features
+let timerMode = 'stopwatch'; // 'stopwatch' | 'pomodoro'
+let pomodoroDurationMs = 25 * 60 * 1000;
+let pomodoroRemainingMs = 25 * 60 * 1000;
+let activeTag = 'Deep Work';
+let dailySessions = {}; // { 'YYYY-MM-DD': [ { id, startTime, endTime, duration, tag, mode } ] }
+let dailyTags = {}; // { 'YYYY-MM-DD': { [tag]: durationMs } }
+let idleThreshold = 900; // 15 mins default in seconds
+let soundEnabled = true;
 
 // Google Sheets Sync State
 let googleSheetsUrl = '';
@@ -34,7 +41,7 @@ let googleSheetsAutoSync = false;
 let googleSheetsSyncStatus = 'disconnected';
 let googleSheetsLastSyncTime = 0;
 
-// New Features State
+// Analytics State
 let longestSessionMs = 0;
 let overworkNotifiedForCurrentSession = false;
 let startTimesSum = 0;
@@ -53,6 +60,61 @@ let lastRecordedDate = getTodayDate();
 let reminderDisabledUntil = 0;
 let wasAutoPaused = false;
 
+// Calculate Streak (Consecutive days reaching daily goal)
+function calculateStreak() {
+  const today = getTodayDate();
+  let streak = 0;
+  let d = new Date();
+  
+  // Check if today meets goal
+  const todayTotal = (dailyLogs[today] || 0) + (isRunning ? (Date.now() - startTime + elapsedTime) : elapsedTime);
+  if (todayTotal >= dailyGoalMs) {
+    streak++;
+  }
+
+  // Count backwards for previous days
+  d.setDate(d.getDate() - 1);
+  for (let i = 0; i < 365; i++) {
+    const dateStr = `${d.getFullYear()}-${(d.getMonth() + 1).toString().padStart(2, '0')}-${d.getDate().toString().padStart(2, '0')}`;
+    if ((dailyLogs[dateStr] || 0) >= dailyGoalMs) {
+      streak++;
+      d.setDate(d.getDate() - 1);
+    } else {
+      break;
+    }
+  }
+  return streak;
+}
+
+// Record individual session interval
+function recordSessionInterval(startMs, endMs, tag, mode) {
+  const today = getTodayDate();
+  const duration = Math.max(0, endMs - startMs);
+  if (duration < 3000) return; // Skip sub-3-second clicks
+
+  if (!dailySessions[today]) dailySessions[today] = [];
+  const sessionItem = {
+    id: 's_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
+    startTime: startMs,
+    endTime: endMs,
+    duration: duration,
+    tag: tag || activeTag || 'Deep Work',
+    mode: mode || timerMode || 'stopwatch'
+  };
+  dailySessions[today].unshift(sessionItem);
+
+  if (dailySessions[today].length > 150) {
+    dailySessions[today] = dailySessions[today].slice(0, 150);
+  }
+
+  // Record into tag breakdown
+  const currentTag = tag || activeTag || 'Deep Work';
+  if (!dailyTags[today]) dailyTags[today] = {};
+  dailyTags[today][currentTag] = (dailyTags[today][currentTag] || 0) + duration;
+
+  chrome.storage.local.set({ dailySessions, dailyTags });
+}
+
 // Initialize state from storage
 let storageLoadedPromise = new Promise((resolve) => {
   chrome.storage.session.get('sessionActive', (sessionResult) => {
@@ -61,7 +123,8 @@ let storageLoadedPromise = new Promise((resolve) => {
     chrome.storage.local.get([
       'startTime', 'elapsedTime', 'isRunning', 'dailyLogs', 'lastRecordedDate', 'reminderDisabledUntil', 'wasAutoPaused', 'dailyPauses', 'dailyGoalMs', 'lastWeeklyReportDate',
       'longestSessionMs', 'startTimesSum', 'startTimesCount', 'hasStartedToday', 'timeOfDayBuckets', 'lastPauseTimestamp', 'lastHeartbeatTime', 'dailyBreaks',
-      'googleSheetsUrl', 'googleSheetsAutoSync', 'googleSheetsSyncStatus', 'googleSheetsLastSyncTime'
+      'googleSheetsUrl', 'googleSheetsAutoSync', 'googleSheetsSyncStatus', 'googleSheetsLastSyncTime',
+      'timerMode', 'pomodoroDurationMs', 'pomodoroRemainingMs', 'activeTag', 'dailySessions', 'dailyTags', 'idleThreshold', 'soundEnabled'
     ], (result) => {
       startTime = result.startTime || 0;
       elapsedTime = result.elapsedTime || 0;
@@ -83,6 +146,23 @@ let storageLoadedPromise = new Promise((resolve) => {
       lastPauseTimestamp = result.lastPauseTimestamp || 0;
       const lastHeartbeatTime = result.lastHeartbeatTime || 0;
 
+      // New Features
+      timerMode = result.timerMode || 'stopwatch';
+      pomodoroDurationMs = result.pomodoroDurationMs || 25 * 60 * 1000;
+      pomodoroRemainingMs = result.pomodoroRemainingMs || pomodoroDurationMs;
+      activeTag = result.activeTag || 'Deep Work';
+      dailySessions = result.dailySessions || {};
+      dailyTags = result.dailyTags || {};
+      idleThreshold = result.idleThreshold || 900;
+      soundEnabled = result.soundEnabled !== undefined ? result.soundEnabled : true;
+
+      // Set idle detection interval
+      try {
+        if (idleThreshold > 0) {
+          chrome.idle.setDetectionInterval(idleThreshold);
+        }
+      } catch (e) {}
+
       googleSheetsUrl = result.googleSheetsUrl || '';
       googleSheetsAutoSync = result.googleSheetsAutoSync || false;
       googleSheetsSyncStatus = result.googleSheetsSyncStatus || 'disconnected';
@@ -91,8 +171,6 @@ let storageLoadedPromise = new Promise((resolve) => {
       if (isNewSession) {
         chrome.storage.session.set({ sessionActive: true });
 
-        // If it was running on a previous Chrome/PC session, we were shut down unexpectedly.
-        // Cap the worked time at the last known heartbeat to avoid counting offline time!
         if (isRunning) {
           isRunning = false;
           
@@ -107,6 +185,7 @@ let storageLoadedPromise = new Promise((resolve) => {
           
           if (activeDuration > 0) {
             recordTimeOfDayBuckets(startTime, startTime + activeDuration);
+            recordSessionInterval(startTime, startTime + activeDuration, activeTag, timerMode);
           }
           
           startTime = 0;
@@ -149,6 +228,7 @@ function checkMidnightReset() {
         recordWorkedTime(durationForOldDay, lastRecordedDate);
         checkLongestSession(durationForOldDay + elapsedTime);
         recordTimeOfDayBuckets(startTime, endOfPreviousDay.getTime());
+        recordSessionInterval(startTime, endOfPreviousDay.getTime(), activeTag, timerMode);
       }
       
       startTime = endOfPreviousDay.getTime();
@@ -160,7 +240,7 @@ function checkMidnightReset() {
       hasStartedToday = false;
     }
     
-    lastPauseTimestamp = 0; // Always clear pause timestamp on midnight reset so breaks do not carry over!
+    lastPauseTimestamp = 0;
     lastRecordedDate = today;
     reminderDisabledUntil = 0;
     chrome.storage.local.set({ isRunning, elapsedTime, startTime, lastRecordedDate, reminderDisabledUntil, hasStartedToday, lastPauseTimestamp });
@@ -177,15 +257,13 @@ function checkMidnightReset() {
   }
 }
 
-// Add an alarm to ensure midnight reset happens even if background is idle
+// Alarms
 chrome.alarms.create('daily-reset-check', { periodInMinutes: 1 });
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === 'daily-reset-check') {
     checkMidnightReset();
     checkWeeklyReport();
     
-    // Heartbeat tracking inside the alarm to survive service worker suspensions.
-    // Alarms wake up the background script every minute on active computers.
     if (isRunning) {
       const now = Date.now();
       chrome.storage.local.get(['lastHeartbeatTime', 'startTime', 'elapsedTime'], (result) => {
@@ -194,10 +272,8 @@ chrome.alarms.onAlarm.addListener((alarm) => {
         const elTime = result.elapsedTime || 0;
         
         if (lastHb > 0 && now - lastHb > 5 * 60 * 1000) {
-          // Device woke up from sleep or hibernate (alarm did not run for >5 minutes)
           handleSleepStop(lastHb, sTime, elTime);
         } else {
-          // PC is active, update heartbeat timestamp
           chrome.storage.local.set({ lastHeartbeatTime: now });
           lastSavedHeartbeatTime = now;
         }
@@ -212,19 +288,22 @@ function handleSleepStop(lastHb, sTime, elTime) {
   elapsedTime = elTime + activeDuration;
   recordWorkedTime(activeDuration);
   checkLongestSession(elapsedTime);
-  if (activeDuration > 0) recordTimeOfDayBuckets(sTime, sTime + activeDuration);
+  if (activeDuration > 0) {
+    recordTimeOfDayBuckets(sTime, sTime + activeDuration);
+    recordSessionInterval(sTime, sTime + activeDuration, activeTag, timerMode);
+  }
   recordPause('idle');
   
   wasAutoPaused = false; 
-  lastPauseTimestamp = 0; // PC Sleep means session ended, not a break!
+  lastPauseTimestamp = 0;
   chrome.storage.local.set({ isRunning, elapsedTime, wasAutoPaused, lastPauseTimestamp, lastHeartbeatTime: 0 });
   stopBadgeUpdate();
   
   chrome.notifications.create('sleep-stop-notification', {
     type: 'basic',
     iconUrl: 'icons/logo.png',
-    title: 'Focus Flow: Stopped',
-    message: 'The stopwatch was stopped because the device went to sleep.',
+    title: 'Focus Flow: Paused',
+    message: 'Timer paused because the device went to sleep.',
     priority: 1
   });
   chrome.runtime.sendMessage({ type: 'STATE_UPDATED' }).catch(() => {});
@@ -232,7 +311,7 @@ function handleSleepStop(lastHb, sTime, elTime) {
 
 function checkWeeklyReport() {
   const now = new Date();
-  if (now.getDay() === 0 && now.getHours() >= 18) { // Sunday 6 PM or later
+  if (now.getDay() === 0 && now.getHours() >= 18) {
     const todayStr = getTodayDate();
     if (lastWeeklyReportDate !== todayStr) {
       sendWeeklyReport();
@@ -268,35 +347,20 @@ function sendWeeklyReport() {
     type: 'basic',
     iconUrl: 'icons/logo.png',
     title: 'Focus Flow: Weekly Report',
-    message: `You worked ${hours}h this week! Avg: ${avg}h/day. Keep it up!`,
+    message: `You focused ${hours}h this week! Avg: ${avg}h/day. Keep up the momentum.`,
     priority: 1
   });
 }
 
-function formatTime(ms) {
-  const seconds = Math.floor((ms / 1000) % 60);
+function formatBadgeText(ms) {
   const totalMinutes = Math.floor(ms / (1000 * 60));
-  const minutes = totalMinutes % 60;
+  const seconds = Math.floor((ms / 1000) % 60);
   const hours = Math.floor(totalMinutes / 60);
   
-  const s = seconds.toString().padStart(2, '0');
-  const m = minutes.toString().padStart(2, '0');
-  
-  const fullTime = `${hours.toString().padStart(2, '0')}:${m}:${s}`;
-  chrome.action.setTitle({ title: `Focus Flow: ${fullTime}` });
-
-  if (totalMinutes < 10) {
-    return `${totalMinutes}:${s}`;
+  if (hours > 0) {
+    return `${hours}h${totalMinutes % 60}m`;
   }
-  
-  if (seconds % 2 === 0) {
-    if (hours > 0) {
-      return `${hours}:${minutes}`;
-    }
-    return `${totalMinutes}m`;
-  } else {
-    return `${s}s`;
-  }
+  return `${totalMinutes}:${seconds.toString().padStart(2, '0')}`;
 }
 
 function updateBadge() {
@@ -310,34 +374,58 @@ function updateBadge() {
 
   const now = Date.now();
   
-  // Clean, unified sleep detection that works seamlessly during active UI loops too.
   if (lastSavedHeartbeatTime > 0 && now - lastSavedHeartbeatTime > 5 * 60 * 1000) {
     handleSleepStop(lastSavedHeartbeatTime, startTime, elapsedTime);
     return;
   }
 
-  // Keep heartbeat fresh when actively updating badge in popup
   if (now - lastSavedHeartbeatTime >= 5000) {
     lastSavedHeartbeatTime = now;
     chrome.storage.local.set({ lastHeartbeatTime: now });
   }
 
-  const currentElapsed = now - startTime + elapsedTime;
-  const formatted = formatTime(currentElapsed);
-  
-  chrome.action.setBadgeText({ text: formatted });
-  chrome.action.setBadgeBackgroundColor({ color: '#1e293b' });
-  chrome.action.setBadgeTextColor({ color: '#ffffff' });
+  if (timerMode === 'pomodoro') {
+    const elapsedSinceStart = now - startTime;
+    const remaining = Math.max(0, pomodoroRemainingMs - elapsedSinceStart);
+    
+    if (remaining <= 0) {
+      // Pomodoro Finished!
+      doStopTimer(false);
+      chrome.notifications.create('pomodoro-completed', {
+        type: 'basic',
+        iconUrl: 'icons/logo.png',
+        title: 'Focus Sprint Complete! 🎯',
+        message: `Great job! You finished your ${Math.round(pomodoroDurationMs / 60000)}-minute focus block. Take a well-deserved break!`,
+        priority: 2
+      });
+      chrome.runtime.sendMessage({ type: 'POMODORO_COMPLETED' }).catch(() => {});
+      return;
+    }
+    
+    const formatted = formatBadgeText(remaining);
+    chrome.action.setBadgeText({ text: formatted });
+    chrome.action.setBadgeBackgroundColor({ color: '#1e293b' });
+    chrome.action.setBadgeTextColor({ color: '#ffffff' });
+    chrome.action.setTitle({ title: `Focus Flow: ${formatted} remaining (${activeTag})` });
+  } else {
+    const currentElapsed = now - startTime + elapsedTime;
+    const formatted = formatBadgeText(currentElapsed);
+    
+    chrome.action.setBadgeText({ text: formatted });
+    chrome.action.setBadgeBackgroundColor({ color: '#1e293b' });
+    chrome.action.setBadgeTextColor({ color: '#ffffff' });
+    chrome.action.setTitle({ title: `Focus Flow: ${formatted} (${activeTag})` });
 
-  if (currentElapsed > 4 * 60 * 60 * 1000 && !overworkNotifiedForCurrentSession) {
-    chrome.notifications.create('overwork-alert', {
-      type: 'basic',
-      iconUrl: 'icons/logo.png',
-      title: 'Focus Flow: Overwork Alert',
-      message: 'You have been at it for 4+ hours straight. Consider taking a short break!',
-      priority: 1
-    });
-    overworkNotifiedForCurrentSession = true;
+    if (currentElapsed > 4 * 60 * 60 * 1000 && !overworkNotifiedForCurrentSession) {
+      chrome.notifications.create('overwork-alert', {
+        type: 'basic',
+        iconUrl: 'icons/logo.png',
+        title: 'Focus Flow: Overwork Alert',
+        message: 'You have been in flow for 4+ hours straight. Consider resting your eyes!',
+        priority: 1
+      });
+      overworkNotifiedForCurrentSession = true;
+    }
   }
 }
 
@@ -391,84 +479,23 @@ function stopBadgeUpdate() {
   chrome.action.setBadgeText({ text: '' });
 }
 
-let lastReminderTime = 0;
-const REMINDER_COOLDOWN = 60 * 60 * 1000; // 1 hour
-
-function formatMinutesToTime(mins) {
-  const h = Math.floor(mins / 60);
-  const m = Math.floor(mins % 60);
-  const ampm = h >= 12 ? 'PM' : 'AM';
-  const h12 = h % 12 || 12;
-  return `${h12}:${m.toString().padStart(2, '0')} ${ampm}`;
-}
-
-function showReminder() {
-  storageLoadedPromise.then(() => {
-    const now = Date.now();
-    if (now < reminderDisabledUntil) return;
-    if (isRunning) return;
-
-    if (startTimesCount > 0) {
-      const avgMinutes = startTimesSum / startTimesCount;
-      const currentDate = new Date();
-      const currentMinutes = currentDate.getHours() * 60 + currentDate.getMinutes();
-      
-      if (currentMinutes < avgMinutes) {
-        return; 
-      }
-    }
-
-    if (now - lastReminderTime > REMINDER_COOLDOWN) {
-      const avgText = startTimesCount > 0 ? ` (Usually you start around ${formatMinutesToTime(startTimesSum / startTimesCount)})` : '';
-      chrome.notifications.create('start-reminder', {
-        type: 'basic',
-        iconUrl: 'icons/logo.png',
-        title: 'Focus Flow',
-        message: `Time to start your tracker?${avgText}`,
-        buttons: [{ title: 'Mute for Today' }],
-        priority: 1
-      });
-      lastReminderTime = now;
-    }
-  });
-}
-
-chrome.notifications.onButtonClicked.addListener((notificationId, buttonIndex) => {
-  if (notificationId === 'start-reminder' && buttonIndex === 0) {
-    // Mute until end of today
-    const endOfToday = new Date();
-    endOfToday.setHours(23, 59, 59, 999);
-    reminderDisabledUntil = endOfToday.getTime();
-    chrome.storage.local.set({ reminderDisabledUntil });
-    chrome.notifications.clear(notificationId);
-  }
-});
-
-chrome.tabs.onCreated.addListener(() => {
-  showReminder();
-});
-
-chrome.runtime.onStartup.addListener(() => {
-  showReminder();
-});
-
-function doStartTimer() {
+function doStartTimer(customTag = null, customMode = null) {
   wasAutoPaused = false;
+  if (customTag) activeTag = customTag;
+  if (customMode) timerMode = customMode;
+
   if (!isRunning) {
     isRunning = true;
     const now = Date.now();
     startTime = now;
     overworkNotifiedForCurrentSession = false;
     
-    // Add the break duration since last pause, only if under the daily goal
+    // Add break duration since last pause
     if (lastPauseTimestamp > 0 && elapsedTime < dailyGoalMs) {
       let breakDuration = now - lastPauseTimestamp;
       if (breakDuration > 0) {
-        // Cap single break at 2 hours to avoid runaway tracking (e.g. overnight or leaving laptop on)
         const MAX_BREAK_MS = 2 * 60 * 60 * 1000;
-        if (breakDuration > MAX_BREAK_MS) {
-          breakDuration = MAX_BREAK_MS;
-        }
+        if (breakDuration > MAX_BREAK_MS) breakDuration = MAX_BREAK_MS;
         recordBreakTime(breakDuration);
       }
     }
@@ -484,11 +511,12 @@ function doStartTimer() {
     lastPauseTimestamp = 0;
     lastSavedHeartbeatTime = now;
     
-    chrome.storage.local.set({ isRunning, startTime, wasAutoPaused, lastPauseTimestamp, lastHeartbeatTime: now });
+    chrome.storage.local.set({ 
+      isRunning, startTime, wasAutoPaused, lastPauseTimestamp, lastHeartbeatTime: now,
+      activeTag, timerMode, pomodoroRemainingMs 
+    });
     startBadgeUpdate();
     chrome.notifications.clear('start-reminder');
-  } else {
-    chrome.storage.local.set({ wasAutoPaused });
   }
 }
 
@@ -498,66 +526,163 @@ function doStopTimer(isManual) {
     isRunning = false;
     const now = Date.now();
     const sessionDuration = now - startTime;
+    
     elapsedTime += sessionDuration;
     recordWorkedTime(sessionDuration);
     checkLongestSession(elapsedTime);
     recordTimeOfDayBuckets(startTime, now);
+    recordSessionInterval(startTime, now, activeTag, timerMode);
+
+    if (timerMode === 'pomodoro') {
+      pomodoroRemainingMs = Math.max(0, pomodoroRemainingMs - sessionDuration);
+      if (pomodoroRemainingMs <= 0) {
+        pomodoroRemainingMs = pomodoroDurationMs; // Reset for next session
+      }
+    }
     
     if (isManual) recordPause('manual');
     
     lastPauseTimestamp = now;
-    chrome.storage.local.set({ isRunning, elapsedTime, wasAutoPaused, lastPauseTimestamp, lastHeartbeatTime: 0 });
+    chrome.storage.local.set({ 
+      isRunning, elapsedTime, wasAutoPaused, lastPauseTimestamp, lastHeartbeatTime: 0,
+      pomodoroRemainingMs 
+    });
     stopBadgeUpdate();
     
     if (googleSheetsAutoSync && googleSheetsUrl) {
       syncToGoogleSheets();
     }
-  } else {
-    chrome.storage.local.set({ wasAutoPaused });
   }
 }
 
+// Runtime message listener
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   storageLoadedPromise.then(() => {
     checkMidnightReset();
 
     if (message.type === 'START') {
-      doStartTimer();
+      doStartTimer(message.tag, message.mode);
       sendResponse({ success: true });
     } else if (message.type === 'STOP') {
       doStopTimer(true);
       sendResponse({ success: true });
     } else if (message.type === 'GET_STATUS') {
-      const currentElapsed = isRunning ? (Date.now() - startTime + elapsedTime) : elapsedTime;
+      const now = Date.now();
+      const currentElapsed = isRunning ? (now - startTime + elapsedTime) : elapsedTime;
+      let currentPomodoroRemaining = pomodoroRemainingMs;
+      if (timerMode === 'pomodoro' && isRunning) {
+        currentPomodoroRemaining = Math.max(0, pomodoroRemainingMs - (now - startTime));
+      }
+
+      const todayStr = getTodayDate();
       sendResponse({ 
-        isRunning, elapsedTime: currentElapsed, dailyLogs, dailyPauses, 
-        dailyGoalMs, startTime, longestSessionMs, startTimesSum, startTimesCount,
-        timeOfDayBuckets, dailyBreaks, lastPauseTimestamp,
-        googleSheetsUrl, googleSheetsAutoSync, googleSheetsSyncStatus, googleSheetsLastSyncTime
+        isRunning, 
+        elapsedTime: currentElapsed, 
+        timerMode,
+        pomodoroDurationMs,
+        pomodoroRemainingMs: currentPomodoroRemaining,
+        activeTag,
+        dailySessions: dailySessions[todayStr] || [],
+        allDailySessions: dailySessions,
+        dailyTags: dailyTags[todayStr] || {},
+        allDailyTags: dailyTags,
+        dailyLogs, 
+        dailyPauses, 
+        dailyGoalMs, 
+        startTime, 
+        longestSessionMs, 
+        startTimesSum, 
+        startTimesCount,
+        timeOfDayBuckets, 
+        dailyBreaks, 
+        lastPauseTimestamp,
+        streakCount: calculateStreak(),
+        idleThreshold,
+        soundEnabled,
+        googleSheetsUrl, 
+        googleSheetsAutoSync, 
+        googleSheetsSyncStatus, 
+        googleSheetsLastSyncTime
       });
     } else if (message.type === 'UPDATE_GOAL') {
       dailyGoalMs = message.dailyGoalMs;
       chrome.storage.local.set({ dailyGoalMs });
+      sendResponse({ success: true });
+    } else if (message.type === 'SET_TIMER_MODE') {
+      timerMode = message.mode;
+      chrome.storage.local.set({ timerMode });
+      updateBadge();
+      sendResponse({ success: true });
+    } else if (message.type === 'SET_POMODORO_DURATION') {
+      pomodoroDurationMs = message.durationMs;
+      pomodoroRemainingMs = message.durationMs;
+      chrome.storage.local.set({ pomodoroDurationMs, pomodoroRemainingMs });
+      updateBadge();
+      sendResponse({ success: true });
+    } else if (message.type === 'SET_ACTIVE_TAG') {
+      activeTag = message.tag || 'Deep Work';
+      chrome.storage.local.set({ activeTag });
+      sendResponse({ success: true });
+    } else if (message.type === 'SET_IDLE_THRESHOLD') {
+      idleThreshold = message.threshold;
+      chrome.storage.local.set({ idleThreshold });
+      try {
+        if (idleThreshold > 0) chrome.idle.setDetectionInterval(idleThreshold);
+      } catch (e) {}
+      sendResponse({ success: true });
+    } else if (message.type === 'SET_SOUND_ENABLED') {
+      soundEnabled = message.soundEnabled;
+      chrome.storage.local.set({ soundEnabled });
       sendResponse({ success: true });
     } else if (message.type === 'RESET') {
       wasAutoPaused = false;
       isRunning = false;
       elapsedTime = 0;
       startTime = 0;
-      chrome.storage.local.set({ isRunning, elapsedTime, startTime, wasAutoPaused, lastHeartbeatTime: 0 });
+      pomodoroRemainingMs = pomodoroDurationMs;
+      chrome.storage.local.set({ 
+        isRunning, elapsedTime, startTime, wasAutoPaused, lastHeartbeatTime: 0, pomodoroRemainingMs 
+      });
       stopBadgeUpdate();
       if (googleSheetsAutoSync && googleSheetsUrl) {
         syncToGoogleSheets();
       }
       sendResponse({ success: true });
+    } else if (message.type === 'CLEAR_TODAY_LOGS') {
+      const todayStr = getTodayDate();
+      wasAutoPaused = false;
+      isRunning = false;
+      elapsedTime = 0;
+      startTime = 0;
+      pomodoroRemainingMs = pomodoroDurationMs;
+      dailyLogs[todayStr] = 0;
+      dailyBreaks[todayStr] = 0;
+      dailyPauses[todayStr] = { manual: 0, idle: 0 };
+      dailySessions[todayStr] = [];
+      dailyTags[todayStr] = {};
+      chrome.storage.local.set({
+        isRunning, elapsedTime, startTime, wasAutoPaused, lastHeartbeatTime: 0,
+        pomodoroRemainingMs, dailyLogs, dailyBreaks, dailyPauses, dailySessions, dailyTags
+      });
+      stopBadgeUpdate();
+      sendResponse({ success: true });
+    } else if (message.type === 'DELETE_SESSION') {
+      const todayStr = getTodayDate();
+      if (dailySessions[todayStr]) {
+        const idx = dailySessions[todayStr].findIndex(s => s.id === message.sessionId);
+        if (idx !== -1) {
+          const removed = dailySessions[todayStr].splice(idx, 1)[0];
+          // Subtract from dailyLogs
+          dailyLogs[todayStr] = Math.max(0, (dailyLogs[todayStr] || 0) - removed.duration);
+          elapsedTime = Math.max(0, elapsedTime - removed.duration);
+          chrome.storage.local.set({ dailySessions, dailyLogs, elapsedTime });
+        }
+      }
+      sendResponse({ success: true });
     } else if (message.type === 'TEST_CONNECT') {
-      syncToGoogleSheets(message.url).then(res => {
-        sendResponse(res);
-      });
+      syncToGoogleSheets(message.url).then(res => sendResponse(res));
     } else if (message.type === 'SYNC_NOW') {
-      syncToGoogleSheets().then(res => {
-        sendResponse(res);
-      });
+      syncToGoogleSheets().then(res => sendResponse(res));
     } else if (message.type === 'UPDATE_AUTO_SYNC') {
       googleSheetsAutoSync = message.autoSync;
       chrome.storage.local.set({ googleSheetsAutoSync });
@@ -574,12 +699,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   return true;
 });
 
-// Shortcut to open popup is handled automatically by Chrome via _execute_action in manifest.json
-
-// --- Auto-Pause Logic ---
-const IDLE_THRESHOLD = 900; // 15 minutes in seconds
-chrome.idle.setDetectionInterval(IDLE_THRESHOLD);
-
+// Auto-Pause Logic
 function triggerAutoPause(newState) {
   isRunning = false;
   const now = Date.now();
@@ -587,7 +707,7 @@ function triggerAutoPause(newState) {
   let activeDuration;
   
   if (newState === 'idle') {
-    const idleTimeMs = IDLE_THRESHOLD * 1000;
+    const idleTimeMs = (idleThreshold || 900) * 1000;
     activeDuration = Math.max(0, sessionDurationSinceStart - idleTimeMs);
   } else {
     activeDuration = sessionDurationSinceStart;
@@ -597,11 +717,10 @@ function triggerAutoPause(newState) {
   recordWorkedTime(activeDuration);
   checkLongestSession(elapsedTime);
   recordTimeOfDayBuckets(startTime, startTime + activeDuration);
+  recordSessionInterval(startTime, startTime + activeDuration, activeTag, timerMode);
   recordPause('idle');
   
-  wasAutoPaused = newState === 'idle'; // Auto-resume if idle, but STOP if locked
-  
-  // Set lastPauseTimestamp to the actual pause trigger moment.
+  wasAutoPaused = newState === 'idle';
   lastPauseTimestamp = now;
   
   chrome.storage.local.set({ isRunning, elapsedTime, wasAutoPaused, lastPauseTimestamp, lastHeartbeatTime: 0 });
@@ -612,12 +731,11 @@ function triggerAutoPause(newState) {
     iconUrl: 'icons/logo.png',
     title: newState === 'idle' ? 'Focus Flow: Auto-Paused' : 'Focus Flow: Stopped',
     message: newState === 'idle' 
-      ? 'The stopwatch was paused after 15 minutes of inactivity.'
-      : 'The stopwatch was stopped because the system was locked or screen turned off.',
+      ? `Paused after ${Math.round((idleThreshold || 900) / 60)} minutes of inactivity.`
+      : 'Stopped because the screen turned off or system locked.',
     priority: 1
   });
 
-  // Update any open popups
   chrome.runtime.sendMessage({ type: 'STATE_UPDATED' }).catch(() => {});
 }
 
@@ -625,11 +743,9 @@ chrome.idle.onStateChanged.addListener((newState) => {
   storageLoadedPromise.then(() => {
     if (newState === 'idle' || newState === 'locked') {
       if (isRunning) {
-        // Smart media playback bypass: if a video or call is active, don't auto-pause
         if (newState === 'idle') {
           chrome.tabs.query({ audible: true }, (tabs) => {
             if (tabs && tabs.length > 0) {
-              console.log("Focus Flow: Active media playback detected. Bypassing idle state.");
               return;
             }
             triggerAutoPause(newState);
@@ -651,9 +767,7 @@ chrome.idle.onStateChanged.addListener((newState) => {
           let breakDuration = now - lastPauseTimestamp;
           if (breakDuration > 0) {
             const MAX_BREAK_MS = 2 * 60 * 60 * 1000;
-            if (breakDuration > MAX_BREAK_MS) {
-              breakDuration = MAX_BREAK_MS;
-            }
+            if (breakDuration > MAX_BREAK_MS) breakDuration = MAX_BREAK_MS;
             recordBreakTime(breakDuration);
           }
         }
@@ -668,18 +782,16 @@ chrome.idle.onStateChanged.addListener((newState) => {
           type: 'basic',
           iconUrl: 'icons/logo.png',
           title: 'Focus Flow: Auto-Resumed',
-          message: 'Welcome back! The stopwatch has been resumed.',
+          message: 'Welcome back! Your focus flow has resumed.',
           priority: 1
         });
 
-        // Update any open popups
         chrome.runtime.sendMessage({ type: 'STATE_UPDATED' }).catch(() => {});
       }
     }
   });
 });
 
-// Graceful PC shutdown & Chrome exit handling
 chrome.runtime.onSuspend.addListener(() => {
   if (isRunning) {
     const now = Date.now();
@@ -687,7 +799,7 @@ chrome.runtime.onSuspend.addListener(() => {
   }
 });
 
-// --- Google Sheets Sync Engine ---
+// Google Sheets Sync Engine
 function syncToGoogleSheets(customUrl = null) {
   const urlToUse = customUrl || googleSheetsUrl;
   if (!urlToUse) {
@@ -703,20 +815,16 @@ function syncToGoogleSheets(customUrl = null) {
   const breaksToSync = { ...dailyBreaks };
   const pausesToSync = { ...dailyPauses };
 
-  // Calculate live work time today
   const todayWork = isRunning ? (Date.now() - startTime + elapsedTime) : elapsedTime;
   if (todayWork > 0) {
     logsToSync[today] = todayWork;
   }
 
-  // Calculate live break time today
   let activeBreak = 0;
   if (!isRunning && lastPauseTimestamp > 0) {
     activeBreak = Date.now() - lastPauseTimestamp;
     const MAX_BREAK_MS = 2 * 60 * 60 * 1000;
-    if (activeBreak > MAX_BREAK_MS) {
-      activeBreak = MAX_BREAK_MS;
-    }
+    if (activeBreak > MAX_BREAK_MS) activeBreak = MAX_BREAK_MS;
   }
   const todayBreakTotal = (dailyBreaks[today] || 0) + activeBreak;
   if (todayBreakTotal > 0) {
@@ -732,31 +840,22 @@ function syncToGoogleSheets(customUrl = null) {
   return fetch(urlToUse, {
     method: 'POST',
     mode: 'cors',
-    headers: {
-      'Content-Type': 'text/plain;charset=utf-8'
-    },
+    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
     body: JSON.stringify(payload)
   })
   .then(response => {
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
-    }
+    if (!response.ok) throw new Error(`HTTP status: ${response.status}`);
     return response.json();
   })
   .then(data => {
     if (data && data.success) {
       googleSheetsSyncStatus = 'connected';
       googleSheetsLastSyncTime = Date.now();
-      
-      const updateObj = { 
-        googleSheetsSyncStatus, 
-        googleSheetsLastSyncTime 
-      };
+      const updateObj = { googleSheetsSyncStatus, googleSheetsLastSyncTime };
       if (customUrl) {
         googleSheetsUrl = customUrl;
         updateObj.googleSheetsUrl = customUrl;
       }
-      
       chrome.storage.local.set(updateObj);
       chrome.runtime.sendMessage({ type: 'STATE_UPDATED' }).catch(() => {});
       return { success: true, count: data.count };
@@ -765,12 +864,9 @@ function syncToGoogleSheets(customUrl = null) {
     }
   })
   .catch(error => {
-    console.error('Focus Flow: Google Sheets sync failed:', error);
     googleSheetsSyncStatus = 'failed';
     chrome.storage.local.set({ googleSheetsSyncStatus });
     chrome.runtime.sendMessage({ type: 'STATE_UPDATED' }).catch(() => {});
     return { success: false, error: error.toString() };
   });
 }
-
-

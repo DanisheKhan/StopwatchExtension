@@ -3,206 +3,372 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Stopwatch</title>
+  <title>Focus Flow</title>
   <link rel="stylesheet" href="style.css">
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 </head>
 <body>
-  <div class="logo-container">
-    <img src="icons/logo.png" alt="Logo" class="logo">
-  </div>
-  
-  <header>
-    <h1>Focus Flow</h1>
-    <div id="currentTime" class="current-time">--:-- --</div>
-  </header>
-  
-  <div class="display-container glass">
-    <svg class="progress-svg" viewBox="0 0 240 240">
-      <circle class="progress-bg" cx="120" cy="120" r="110"></circle>
-      <circle id="progressValue" class="progress-value" cx="120" cy="120" r="110"></circle>
-    </svg>
-    <div class="display-content">
-      <div class="status-indicator">
-        <div id="statusDot" class="dot"></div>
-        <span id="statusText">Inactive</span>
-      </div>
-      <div class="time-labels">
-        <span>HR</span>
-        <span>MIN</span>
-        <span>SEC</span>
-      </div>
-      <div id="display" class="time-display">00:00:00</div>
-      <div class="milliseconds">.00</div>
-    </div>
-  </div>
-
-  <div class="controls">
-    <button id="startStopBtn" class="btn primary">Start</button>
-    <button id="resetBtn" class="btn secondary">Reset</button>
-  </div>
-
-  <div class="secondary-controls">
-    <button id="historyToggleBtn" class="btn-text">View History</button>
-  </div>
-
-  <div id="historyPanel" class="history-panel glass hidden">
-    <div class="heatmap-header">
-      <h2>Activity Heatmap</h2>
-      <span class="heatmap-year" id="heatmapYear">Last 365 Days</span>
-    </div>
-    <div class="heatmap-wrapper">
-      <div id="heatmapGrid" class="heatmap-grid"></div>
-    </div>
-    
-    <div class="stats-container">
-      <div class="stat-item">
-        <span class="stat-label">This Week</span>
-        <span id="statWeekly" class="stat-value">0h 0m</span>
-      </div>
-      <div class="stat-item">
-        <span class="stat-label">This Month</span>
-        <span id="statMonthly" class="stat-value">0h 0m</span>
-      </div>
-      <div class="stat-item">
-        <span class="stat-label">Daily Avg</span>
-        <span id="statAverage" class="stat-value">0h 0m</span>
-      </div>
-    </div>
-    
-    <div class="extra-stats-grid">
-      <div class="stat-box">
-        <span class="stat-label">Best Day</span>
-        <span id="bestDayBadge" class="stat-value small-text">-</span>
-      </div>
-      <div class="stat-box">
-        <span class="stat-label">Worst Day</span>
-        <span id="worstDayBadge" class="stat-value small-text">-</span>
-      </div>
-      <div class="stat-box">
-        <span class="stat-label">Avg Start</span>
-        <span id="avgStartTime" class="stat-value small-text">-</span>
-      </div>
-      <div class="stat-box">
-        <span class="stat-label">Longest Session</span>
-        <span id="longestSessionTime" class="stat-value small-text">-</span>
-      </div>
-    </div>
-    
-    <div class="chart-container">
-      <span class="chart-title">Time of Day</span>
-      <div class="bar-chart" id="timeOfDayChart">
-        <div class="bar-wrapper"><div class="bar" id="barMorning"></div><span>Morn</span></div>
-        <div class="bar-wrapper"><div class="bar" id="barAfternoon"></div><span>Aft</span></div>
-        <div class="bar-wrapper"><div class="bar" id="barEvening"></div><span>Eve</span></div>
-        <div class="bar-wrapper"><div class="bar" id="barNight"></div><span>Ngt</span></div>
-      </div>
-    </div>
-    
-    <div class="settings-section">
-      <label class="settings-label" for="dailyGoalInput">Daily Goal (Hours)</label>
-      <input type="number" id="dailyGoalInput" class="settings-input" min="1" max="24" value="8">
-    </div>
-
-    <div id="dayDetails" class="day-details">
-      <div class="details-header-row">
-        <span id="detailsDate" class="details-date">Select a date</span>
-        <span id="detailsTime" class="details-time">00:00:00</span>
-      </div>
-      
-      <div class="goal-progress-box">
-        <span class="day-stat-label">Goal Progress</span>
-        <span id="dayGoalVal" class="day-stat-val large">-</span>
-        <div class="mini-progress-track">
-          <div id="dayGoalBar" class="mini-progress-fill" style="width: 0%"></div>
-        </div>
-      </div>
-      
-      <div class="ratio-box" id="dayRatioBox">
-        <div class="ratio-labels">
-          <span class="day-stat-label">Work vs Break Ratio</span>
-          <span id="dayRatioVal" class="day-stat-val">-</span>
-        </div>
-        <div class="ratio-track">
-          <div id="dayRatioWorkBar" class="ratio-fill work" style="width: 0%"></div>
-          <div id="dayRatioBreakBar" class="ratio-fill break" style="width: 0%"></div>
-        </div>
-        <div class="ratio-legend">
-          <span><span class="legend-dot work"></span>Work: <span id="dayWorkHrs">-</span></span>
-          <span><span class="legend-dot break"></span>Break: <span id="dayBreakHrs">-</span></span>
-        </div>
-      </div>
-      
-      <div class="day-stats-grid">
-        <div class="day-stat-box">
-          <span class="day-stat-label">Manual Pauses</span>
-          <span id="dayManualVal" class="day-stat-val">-</span>
-        </div>
-        <div class="day-stat-box">
-          <span class="day-stat-label">Inactivity Pauses</span>
-          <span id="dayIdleVal" class="day-stat-val">-</span>
-        </div>
-      </div>
-    </div>
-
-    <div class="sheets-sync-card">
-      <!-- COMPACT ROW (Always Visible) -->
-      <div class="sheets-compact-row">
-        <div class="sheets-compact-left">
-          <svg class="sheets-icon" viewBox="0 0 24 24" fill="currentColor">
-            <path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zM6 6h5v5H6V6zm0 6h5v6H6v-6zm12 6h-5v-5h5v5zm0-7h-5V6h5v5z"/>
+  <div class="app-container">
+    <!-- APP HEADER -->
+    <header class="app-header">
+      <div class="brand-box">
+        <div class="brand-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="13" r="8"></circle>
+            <path d="M12 9v4l2.5 2.5"></path>
+            <path d="M10 2h4"></path>
           </svg>
-          <span id="syncStatus" class="sync-status disconnected">Not Connected</span>
         </div>
-        <div class="sheets-compact-actions">
-          <button id="syncNowBtn" class="btn-compact-sync" disabled>Sync</button>
-          <button id="configToggleBtn" class="btn-compact-icon" title="Configure Cloud Sync">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="gear-icon">
-              <circle cx="12" cy="12" r="3"></circle>
-              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+        <span class="brand-title">Focus Flow</span>
+      </div>
+
+      <div class="header-meta">
+        <div class="meta-pill streak-pill" title="Daily Streak">
+          <span class="pill-bolt">⚡</span>
+          <span id="streakCount">0d</span>
+        </div>
+        <div class="meta-pill time-pill" id="currentTime">--:--</div>
+      </div>
+    </header>
+
+    <!-- LIQUID SEGMENTED NAVIGATION BAR WITH SLIDING GLIDER -->
+    <nav class="nav-bar" role="tablist">
+      <div class="nav-indicator" id="navIndicator"></div>
+      <button class="nav-btn active" id="tabBtnTimer" data-tab="timer" role="tab" aria-selected="true">Timer</button>
+      <button class="nav-btn" id="tabBtnAnalytics" data-tab="analytics" role="tab" aria-selected="false">Insights</button>
+      <button class="nav-btn" id="tabBtnLog" data-tab="log" role="tab" aria-selected="false">Sessions</button>
+      <button class="nav-btn" id="tabBtnSettings" data-tab="settings" role="tab" aria-selected="false">Settings</button>
+    </nav>
+
+    <!-- VIEWPORT PANELS -->
+    <main class="panel-viewport">
+
+      <!-- ================= TAB 1: TIMER ================= -->
+      <section id="panelTimer" class="tab-panel active">
+        <!-- PRECISION TIMER DIAL -->
+        <div class="dial-container">
+          <svg class="dial-svg" viewBox="0 0 240 240">
+            <circle class="dial-rail" cx="120" cy="120" r="102"></circle>
+            <circle id="dialProgress" class="dial-fill" cx="120" cy="120" r="102"></circle>
+          </svg>
+
+          <div class="dial-content">
+            <div class="status-tag" id="statusBadge">
+              <span class="status-dot" id="statusDot"></span>
+              <span id="statusText">READY</span>
+            </div>
+
+            <div class="digits-box">
+              <span id="display" class="digits-main">00:00:00</span>
+              <span id="msDisplay" class="digits-ms">.00</span>
+            </div>
+
+            <div class="goal-indicator">
+              <span id="goalPercentText">0% of 4.0h goal</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- ACTION BUTTONS -->
+        <div class="action-bar">
+          <button id="startStopBtn" class="btn-action primary-action">
+            <svg class="btn-svg" id="playIcon" viewBox="0 0 24 24" fill="currentColor">
+              <polygon points="6 4 20 12 6 20 6 4"></polygon>
             </svg>
+            <span id="startBtnLabel">Start Focus</span>
+          </button>
+
+          <button id="resetBtn" class="btn-action secondary-action" title="Reset timer (R)">
+            <svg class="btn-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path>
+              <path d="M3 3v5h5"></path>
+            </svg>
+            <span>Reset</span>
           </button>
         </div>
-      </div>
 
-      <!-- COLLAPSIBLE CONFIG PANEL -->
-      <div id="sheetsConfigPanel" class="sheets-config-panel hidden">
-        <div class="sync-input-group">
-          <input type="text" id="sheetsUrlInput" class="sheets-input-url" placeholder="Paste Apps Script Web App URL...">
+        <div class="keyboard-hints">
+          <span><kbd>Space</kbd> Start / Pause</span>
+          <span class="sep">•</span>
+          <span><kbd>R</kbd> Reset</span>
         </div>
+      </section>
+
+      <!-- ================= TAB 2: INSIGHTS ================= -->
+      <section id="panelAnalytics" class="tab-panel">
         
-        <div class="sync-actions-row">
-          <button id="saveConnectBtn" class="btn-sync-action">Save & Sync</button>
-          <div class="auto-sync-inline">
-            <span class="auto-sync-label">Auto-Sync</span>
-            <label class="auto-sync-switch">
-              <input type="checkbox" id="autoSyncCheckbox">
-              <span class="slider"></span>
+        <!-- BENTO CARD 1: OVERVIEW (2x2) -->
+        <div class="bento-card bento-overview">
+          <div class="overview-cell">
+            <span class="cell-label">Today's Focus</span>
+            <span class="cell-val highlight" id="kpiToday">0h 0m</span>
+          </div>
+          <div class="overview-cell">
+            <span class="cell-label">This Week</span>
+            <span class="cell-val" id="statWeekly">0h 0m</span>
+          </div>
+          <div class="overview-cell">
+            <span class="cell-label">This Month</span>
+            <span class="cell-val" id="statMonthly">0h 0m</span>
+          </div>
+          <div class="overview-cell">
+            <span class="cell-label">Daily Average</span>
+            <span class="cell-val" id="statAverage">0h 0m</span>
+          </div>
+        </div>
+
+        <!-- BENTO CARD 2: GOAL & BALANCE -->
+        <div class="bento-card bento-pace">
+          <div class="bento-sub-section">
+            <div class="bento-header-row">
+              <span class="bento-title">Daily Goal Progress</span>
+              <span class="bento-badge-val" id="dayGoalVal">0.0h / 4.0h (0%)</span>
+            </div>
+            <div class="progress-rail">
+              <div id="dayGoalBar" class="progress-bar-fill" style="width: 0%"></div>
+            </div>
+          </div>
+
+          <div class="bento-divider"></div>
+
+          <div class="bento-sub-section">
+            <div class="bento-header-row">
+              <span class="bento-title">Work vs. Break Balance</span>
+              <span class="bento-badge-val" id="dayRatioVal">100% Work</span>
+            </div>
+            <div class="split-ratio-rail">
+              <div id="dayRatioWorkBar" class="split-segment work" style="width: 100%"></div>
+              <div id="dayRatioBreakBar" class="split-segment break" style="width: 0%"></div>
+            </div>
+            <div class="ratio-legend">
+              <div class="ratio-item"><span class="dot work-dot"></span> Work: <span id="dayWorkHrs" class="legend-val">0m</span></div>
+              <div class="ratio-item"><span class="dot break-dot"></span> Break: <span id="dayBreakHrs" class="legend-val">0m</span></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- BENTO CARD 3: TIME OF DAY & HIGHLIGHTS -->
+        <div class="bento-card bento-rhythm">
+          <div class="bento-header-row">
+            <span class="bento-title">Focus by Time of Day</span>
+          </div>
+          <div class="tod-chart-container" id="timeOfDayChart">
+            <div class="tod-col">
+              <div class="tod-rail"><div class="tod-fill" id="barMorning"></div></div>
+              <span class="tod-text">Morning</span>
+            </div>
+            <div class="tod-col">
+              <div class="tod-rail"><div class="tod-fill" id="barAfternoon"></div></div>
+              <span class="tod-text">Afternoon</span>
+            </div>
+            <div class="tod-col">
+              <div class="tod-rail"><div class="tod-fill" id="barEvening"></div></div>
+              <span class="tod-text">Evening</span>
+            </div>
+            <div class="tod-col">
+              <div class="tod-rail"><div class="tod-fill" id="barNight"></div></div>
+              <span class="tod-text">Night</span>
+            </div>
+          </div>
+
+          <div class="bento-divider"></div>
+
+          <div class="highlights-grid">
+            <div class="highlight-item">
+              <span class="highlight-label">Best Day</span>
+              <span class="highlight-val" id="bestDayBadge">-</span>
+            </div>
+            <div class="highlight-item">
+              <span class="highlight-label">Avg Start</span>
+              <span class="highlight-val" id="avgStartTime">-</span>
+            </div>
+            <div class="highlight-item">
+              <span class="highlight-label">Longest Block</span>
+              <span class="highlight-val" id="longestSessionTime">-</span>
+            </div>
+            <div class="highlight-item">
+              <span class="highlight-label">Pauses</span>
+              <span class="highlight-val" id="dayPausesCombined">0</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- BENTO CARD 4: ANNUAL ACTIVITY -->
+        <div class="bento-card bento-heatmap">
+          <div class="bento-header-row">
+            <span class="bento-title">Annual Activity</span>
+            <span class="bento-sub-badge" id="heatmapYear">365 Days</span>
+          </div>
+          <div class="heatmap-container">
+            <div id="heatmapGrid" class="heatmap-matrix"></div>
+          </div>
+          <div class="heatmap-footer">
+            <span id="detailsDate" class="heat-date">Today</span>
+            <span id="detailsTime" class="heat-time">0h 0m</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================= TAB 3: SESSIONS / LOG ================= -->
+      <section id="panelLog" class="tab-panel">
+        <div class="log-header-bar">
+          <div class="log-title-area">
+            <span class="log-heading">Today's Focus Log</span>
+            <span class="log-counter" id="sessionCount">0 recorded</span>
+          </div>
+          <div class="log-btn-group">
+            <button id="copySummaryBtn" class="btn-log-action" title="Copy markdown summary">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="log-svg">
+                <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+              </svg>
+              <span>Copy</span>
+            </button>
+            <button id="exportCsvBtn" class="btn-log-action" title="Download CSV">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="log-svg">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                <polyline points="7 10 12 15 17 10"></polyline>
+                <line x1="12" y1="15" x2="12" y2="3"></line>
+              </svg>
+              <span>CSV</span>
+            </button>
+            <button id="clearTodayBtn" class="btn-log-action danger" title="Clear today's logs">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="log-svg">
+                <polyline points="3 6 5 6 21 6"></polyline>
+                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"></path>
+              </svg>
+            </button>
+          </div>
+        </div>
+
+        <div id="sessionList" class="session-items-wrapper">
+          <!-- Rendered dynamically -->
+        </div>
+      </section>
+
+      <!-- ================= TAB 4: SETTINGS ================= -->
+      <section id="panelSettings" class="tab-panel">
+        <!-- GROUP 1: TARGET GOAL -->
+        <div class="settings-group-card">
+          <div class="settings-group-header">
+            <span class="settings-group-title">Target Goal</span>
+          </div>
+          
+          <div class="setting-item-row">
+            <div class="setting-item-info">
+              <span class="setting-item-title">Daily Focus Hours</span>
+              <span class="setting-item-desc">Completion target for daily progress ring</span>
+            </div>
+            <div class="stepper-box">
+              <button class="stepper-action" id="goalMinusBtn" title="Decrease goal">-</button>
+              <span id="goalDisplayVal" class="stepper-val">4.0h</span>
+              <button class="stepper-action" id="goalPlusBtn" title="Increase goal">+</button>
+              <input type="hidden" id="dailyGoalInput" value="4">
+            </div>
+          </div>
+
+          <div class="preset-row">
+            <button class="preset-pill active" data-hrs="4">4h</button>
+            <button class="preset-pill" data-hrs="6">6h</button>
+            <button class="preset-pill" data-hrs="8">8h</button>
+            <button class="preset-pill" data-hrs="10">10h</button>
+          </div>
+        </div>
+
+        <!-- GROUP 2: PREFERENCES -->
+        <div class="settings-group-card">
+          <div class="settings-group-header">
+            <span class="settings-group-title">Tracker Preferences</span>
+          </div>
+
+          <div class="setting-item-row">
+            <div class="setting-item-info">
+              <span class="setting-item-title">Inactivity Auto-Pause</span>
+              <span class="setting-item-desc">Pauses timer automatically when idle</span>
+            </div>
+            <select id="idleSelect" class="classic-select">
+              <option value="300">5 min</option>
+              <option value="600">10 min</option>
+              <option value="900" selected>15 min</option>
+              <option value="1800">30 min</option>
+              <option value="0">Disabled</option>
+            </select>
+          </div>
+
+          <div class="settings-hairline-divider"></div>
+
+          <div class="setting-item-row">
+            <div class="setting-item-info">
+              <span class="setting-item-title">Audio Chimes</span>
+              <span class="setting-item-desc">Gentle bell sound on start and pause</span>
+            </div>
+            <label class="classic-toggle">
+              <input type="checkbox" id="soundToggle" checked>
+              <span class="toggle-slider"></span>
             </label>
           </div>
         </div>
-        
-        <div class="guide-accordion">
-          <button id="guideToggleBtn" class="btn-guide-toggle">Show Setup Guide</button>
-          <div id="guideContent" class="guide-content hidden">
-            <ol class="guide-list">
-              <li>Create a new Google Sheet.</li>
-              <li>Go to <strong>Extensions &rarr; Apps Script</strong>.</li>
-              <li>Paste our custom script (click copy button).</li>
-              <li>Click <strong>Deploy &rarr; New deployment</strong>.</li>
-              <li>Select <strong>Web app</strong> (gear icon).</li>
-              <li>Execute as: <strong>Me</strong>, Access: <strong>Anyone</strong>.</li>
-              <li>Deploy and copy the <strong>Web App URL</strong>.</li>
-            </ol>
-            <button id="copyScriptBtn" class="btn-copy-script">Copy Apps Script Code</button>
+
+        <!-- GROUP 3: GOOGLE SHEETS SYNC -->
+        <div class="settings-group-card">
+          <div class="settings-group-header">
+            <div class="header-left">
+              <span class="settings-group-title">Google Sheets Sync</span>
+            </div>
+            <span id="syncStatus" class="sync-badge disconnected">Disconnected</span>
+          </div>
+
+          <div class="sheets-input-wrapper">
+            <input type="text" id="sheetsUrlInput" class="sheets-url-field" placeholder="Paste Apps Script Web App URL...">
+          </div>
+
+          <div class="sheets-btn-row">
+            <button id="saveConnectBtn" class="btn-sheets-primary">Connect</button>
+            <button id="syncNowBtn" class="btn-sheets-secondary" disabled>Sync Now</button>
+          </div>
+
+          <div class="settings-hairline-divider"></div>
+
+          <div class="setting-item-row">
+            <span class="setting-item-title">Automatic Background Sync</span>
+            <label class="classic-toggle">
+              <input type="checkbox" id="autoSyncCheckbox">
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
+
+          <div class="guide-box">
+            <button id="guideToggleBtn" class="guide-accordion-btn">
+              <span>Setup Guide & Apps Script</span>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="accordion-icon">
+                <polyline points="6 9 12 15 18 9"></polyline>
+              </svg>
+            </button>
+            <div id="guideContent" class="guide-content-area hidden">
+              <ol class="guide-steps">
+                <li>Create a blank Google Sheet.</li>
+                <li>Open <strong>Extensions &rarr; Apps Script</strong>.</li>
+                <li>Paste our code (click below to copy).</li>
+                <li>Click <strong>Deploy &rarr; New deployment</strong>.</li>
+                <li>Select <strong>Web app</strong> (Execute as: <strong>Me</strong>, Access: <strong>Anyone</strong>).</li>
+                <li>Copy and paste the Web App URL above.</li>
+              </ol>
+              <button id="copyScriptBtn" class="btn-copy-script">Copy Apps Script Code</button>
+            </div>
           </div>
         </div>
-      </div>
+      </section>
+
+    </main>
+
+    <!-- TOAST NOTIFICATION -->
+    <div id="toastNotification" class="toast-popup hidden">
+      <span id="toastMessage">Notification</span>
     </div>
   </div>
 
   <script src="popup.js"></script>
 </body>
-
-
 </html>
