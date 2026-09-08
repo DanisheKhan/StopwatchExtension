@@ -988,7 +988,8 @@ body.isRunning .status-tag {
   box-sizing: border-box;
   transition: transform var(--duration-fast) var(--ease-bounce),
               background var(--duration-fast),
-              outline-color var(--duration-fast);
+              outline-color var(--duration-fast),
+              box-shadow var(--duration-fast);
 }
 
 .heatmap-cell:hover {
@@ -996,25 +997,25 @@ body.isRunning .status-tag {
   z-index: 5;
 }
 
-/* Monochromatic Luminescence Levels (Zero Punchy Colors) */
+/* Activity Checked Box Levels (Electric Cyan - High Visibility) */
 .heatmap-lvl-1 {
-  background: rgba(255, 255, 255, 0.18);
+  background: #0891b2;
 }
 .heatmap-lvl-2 {
-  background: rgba(255, 255, 255, 0.38);
+  background: #06b6d4;
 }
 .heatmap-lvl-3 {
-  background: rgba(255, 255, 255, 0.65);
+  background: #38bdf8;
 }
 .heatmap-lvl-4 {
-  background: #f8fafc;
-  box-shadow: 0 0 6px rgba(255, 255, 255, 0.5);
+  background: #00f0ff;
+  box-shadow: 0 0 6px rgba(0, 240, 255, 0.65);
 }
 
 .heatmap-cell.selected {
   outline: 1.5px solid #ffffff;
   outline-offset: 1px;
-  z-index: 4;
+  z-index: 5;
 }
 
 .heatmap-footer {
@@ -1033,7 +1034,8 @@ body.isRunning .status-tag {
 
 .heat-time {
   font-weight: 600;
-  color: #ffffff;
+  color: #00f0ff;
+  text-shadow: 0 0 8px rgba(0, 240, 255, 0.35);
 }
 
 /* ==========================================================================
